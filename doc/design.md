@@ -89,7 +89,7 @@ Brief overview of the technical approach for the tasks to implement follows.
 
 ### Task: Start a process
 
-When the process is started, the server adds it (in a thread-safe way) to its internal hash map of processes. The map is keyed with id and valued with the pid. Additionally, two files are created on disk: for storing the stdout and stderr. Each scheduled process has a thread on the server constantly reading from the process output and writing back to those files. Upon the process creation, a new control group is created and configured as per the constraint parameters. The new process is added to the group before the server responds with the UUID.
+When the process is started, the server adds it (in a thread-safe way) to its internal hash map of processes. The map is keyed with id and valued with the pid. Additionally, two files are created on disk: for storing the stdout and stderr. Each scheduled process has stdout and stderr pointed at these two files. Upon the process creation, a new control group is created and configured as per the constraint parameters. The new process is added to the group before the server responds with the UUID.
 
 ### Task: Stop a process
 
