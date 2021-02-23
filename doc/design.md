@@ -34,9 +34,21 @@ The list of possible request results:
 - OS unexpected error (when e.g. the OS refuses some operation that the server needs to perform, e.g. writing to log file because the device is full)
 - success
 
-The authorization step is very basic and is based on the specific value in the client's certificate subject.
-
 The solution will be coded in Rust, using the latest versions of gRPC and TLS libraries: tonic and rustls. Simple and robust command arguments handling will be provided by the structopt crate. Additional dependencies will be chosen at a later point.
+
+### Authentication
+
+The end solution uses mutual TLS for authentication. The client loads up the server's CA root certificate. It also loads up its own certificate and private key. The server has access to the client's root CA, and loads up its own certificate and the private key. Both are then configured to use the CA certificates to verify other party's certificates with.
+
+It is assumed that the whole chain sent one way or the other is verifiable by given CA certificates. The last of the intermediate ones in the chain has to be signed by the corresponding CA loaded on the startup.
+
+In addition to all the above, the client is set to verify the server's certificate domain name.
+
+The ciphersuite of choice is: TLS13_AES_256_GCM_SHA384
+
+### Authorization
+
+The authorization step is very basic and is based on the specific value in the client's certificate subject. The server keeps a list of allowed common names. Upon each request, it reads the CN field from the client certificate's subject and compares with the list. If the value is not in the whitelist, it shortcircuits with the "authorization error" message.
 
 ### Task: Start a process
 
