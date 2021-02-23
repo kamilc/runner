@@ -48,7 +48,7 @@ The ciphersuite of choice is: TLS13_AES_256_GCM_SHA384
 
 ### Authorization
 
-The authorization step is very basic and is based on the specific value in the client's certificate subject. The server keeps a list of allowed common names. Upon each request, it reads the CN field from the client certificate's subject and compares with the list. If the value is not in the whitelist, it shortcircuits with the "authorization error" message.
+The authorization step is very basic and is based on the specific value in the client's certificate subject. The server keeps a set of allowed common names. Upon each request, it reads the CN field from the client certificate's subject and compares with the set. If the value is not found, it shortcircuits with the "authorization error" message.
 
 ### Task: Start a process
 
