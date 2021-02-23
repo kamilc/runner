@@ -44,7 +44,7 @@ It is assumed that the whole chain sent one way or the other is verifiable by gi
 
 In addition to all the above, the client is set to verify the server's certificate domain name.
 
-The ciphersuite of choice is: TLS13_AES_256_GCM_SHA384
+The ciphersuite of choice is: TLS13_CHACHA20_POLY1305_SHA256
 
 Only v3 certificates are considered for this project and additional check against the subjectAltName is going to be performed by the underlying certificate validation library (webpki).
 
