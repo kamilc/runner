@@ -1,6 +1,4 @@
-pub mod service {
-    tonic::include_proto!("service");
-}
+mod service;
 
 use anyhow::{Context, Error, Result};
 use cgroups_rs::cgroup_builder::CgroupBuilder;
@@ -25,29 +23,6 @@ pub struct Runner {
     processes: RwLock<HashMap<String, u32>>,
     cgroups_hier: Box<dyn Hierarchy>,
 }
-
-impl std::fmt::Display for run_response::Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "error")
-    }
-}
-
-macro_rules! impl_from_error {
-    ($to:path, $($from:path), +) => {
-        $(
-            impl std::convert::From<$from> for $to {
-                fn from(error: $from) -> $to {
-                    run_response::Error {
-                        description: error.to_string(),
-                        errors: Some(run_response::error::Errors::GeneralError(1)),
-                    }
-                }
-            }
-        )+
-    };
-}
-
-impl_from_error!(run_response::Error, anyhow::Error, cgroups_rs::error::Error);
 
 impl Runner {
     // todo: implement me
