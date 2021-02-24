@@ -1,5 +1,11 @@
+mod cli;
 mod runner;
 
-fn main() {
-    println!("Hello, world!");
+use anyhow::Result;
+use structopt::StructOpt;
+
+fn main() -> Result<()> {
+    let _ = cli::server::Cli::from_args();
+
+    Ok(())
 }
