@@ -2,7 +2,7 @@ pub mod service {
     tonic::include_proto!("service");
 }
 
-use anyhow::Result;
+use anyhow::{Context, Error, Result};
 use cgroups_rs::cgroup_builder::CgroupBuilder;
 use cgroups_rs::{Cgroup, Hierarchy};
 use service::{
@@ -26,16 +26,42 @@ pub struct Runner {
     cgroups_hier: Box<dyn Hierarchy>,
 }
 
+impl std::fmt::Display for run_response::Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "error")
+    }
+}
+
+macro_rules! impl_from_error {
+    ($to:path, $($from:path), +) => {
+        $(
+            impl std::convert::From<$from> for $to {
+                fn from(error: $from) -> $to {
+                    run_response::Error {
+                        description: error.to_string(),
+                        errors: Some(run_response::error::Errors::GeneralError(1)),
+                    }
+                }
+            }
+        )+
+    };
+}
+
+impl_from_error!(run_response::Error, anyhow::Error, cgroups_rs::error::Error);
+
 impl Runner {
     // todo: implement me
     pub fn run(&mut self, request: &RunRequest) -> Result<String, run_response::Error> {
         let id = Uuid::new_v4().to_string();
-        let cgroup = self.create_cgroup_for(request, id);
+        let cgroup = self
+            .create_cgroup_for(request, id)
+            .context("Couldn't create a control group")?;
         let mut command = self.build_command(request);
 
         match command.spawn() {
             Ok(child) => {
                 let pid = child.id();
+                cgroup.add_task((pid as u64).into())?;
 
                 Ok(pid.to_string())
             }
