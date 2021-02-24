@@ -87,9 +87,10 @@ message StatusResponse {
   }
 
   Status status = 1;
+  uint32 exit_code = 2;
 
-  GenericError general_error = 2;
-  RunError error = 3;
+  GenericError general_error = 3;
+  RunError error = 4;
 }
 
 message LogRequest {
