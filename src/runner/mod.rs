@@ -4,8 +4,8 @@ pub mod service {
 
 use anyhow::Result;
 use service::{
-    status_response::Status, LogRequest, RunRequest, RunResponse, StatusRequest, StatusResponse,
-    StopRequest, StopResponse,
+    log_response, run_response, status_response, stop_response, LogRequest, RunRequest,
+    StatusRequest, StopRequest,
 };
 
 // todo: implement std::iter::Iterator for this stream
@@ -16,33 +16,27 @@ pub struct Runner;
 
 impl Runner {
     // todo: implement me
-    pub fn run(&mut self, _request: &RunRequest) -> Result<RunResponse> {
-        Ok(RunResponse {
-            id: "".to_string(),
-            error: None,
-            general_error: None,
-        })
+    pub fn run(&mut self, _request: &RunRequest) -> Result<String, run_response::Error> {
+        Ok("".to_string())
     }
 
     // todo: implement me
-    pub fn stop(&mut self, _request: &StopRequest) -> Result<StopResponse> {
-        Ok(StopResponse {
-            error: None,
-            general_error: None,
-        })
+    pub fn stop(&mut self, _request: &StopRequest) -> Result<(), stop_response::Error> {
+        Ok(())
     }
 
     // todo: implement me
-    pub fn status(&mut self, _request: &StatusRequest) -> Result<StatusResponse> {
-        Ok(StatusResponse {
-            error: None,
-            general_error: None,
+    pub fn status(
+        &mut self,
+        _request: &StatusRequest,
+    ) -> Result<status_response::StatusResult, status_response::Error> {
+        Ok(status_response::StatusResult {
+            status: 0,
             exit_code: 0,
-            status: Status::Running as i32,
         })
     }
 
-    pub fn log(&mut self, _request: &LogRequest) -> Result<LogStream> {
-        Ok(LogStream)
+    pub fn log(&mut self, _request: &LogRequest) -> Result<LogStream, log_response::Error> {
+        Ok(LogStream {})
     }
 }
