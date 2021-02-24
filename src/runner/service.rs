@@ -1,18 +1,21 @@
 tonic::include_proto!("service");
 
 impl std::fmt::Display for run_response::Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         unimplemented!()
     }
 }
 
-macro_rules! impl_from_error {
-    ($to:path, $($from:path), +) => {
+macro_rules! impl_from_anyhow {
+    ($($for:path), +) => {
         $(
-            impl std::convert::From<$from> for $to {
-                fn from(error: $from) -> $to {
+            impl<T> std::convert::From<T> for $for
+            where
+                T: std::convert::Into<anyhow::Error>,
+            {
+                fn from(error: T) -> $for {
                     run_response::Error {
-                        description: error.to_string(),
+                        description: error.into().to_string(),
                         errors: Some(run_response::error::Errors::GeneralError(1)),
                     }
                 }
@@ -21,4 +24,4 @@ macro_rules! impl_from_error {
     };
 }
 
-impl_from_error!(run_response::Error, anyhow::Error, cgroups_rs::error::Error);
+impl_from_anyhow!(run_response::Error);
