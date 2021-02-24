@@ -33,18 +33,12 @@ impl Runner {
             .context("Couldn't create a control group")?;
         let mut command = self.build_command(request);
 
-        match command.spawn() {
-            Ok(child) => {
-                let pid = child.id();
-                cgroup.add_task((pid as u64).into())?;
+        command.spawn().map(|child| {
+            let pid = child.id();
+            cgroup.add_task((pid as u64).into())?;
 
-                Ok(pid.to_string())
-            }
-            Err(_err) => Err(run_response::Error {
-                description: "".to_string(),
-                errors: Some(run_response::error::Errors::GeneralError(0)),
-            }),
-        }
+            Ok(pid.to_string())
+        })?
     }
 
     pub fn stop(&mut self, _request: &StopRequest) -> Result<(), stop_response::Error> {
