@@ -32,6 +32,10 @@ impl Runner {
         let id = Uuid::new_v4().to_string();
         let mut cgroups = self.create_cgroups(request, &id)?;
 
+        // todo: 1. bring back disk minor and major as it was
+        //       2. do the stdout and stderr redirection
+        //       3. store id and pid in the processed hashmap
+
         Command::new(&request.command)
             .args(&request.arguments)
             .spawn()
