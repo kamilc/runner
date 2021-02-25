@@ -1,7 +1,7 @@
 mod cgroups;
 mod service;
 
-use anyhow::{Context, Error, Result};
+use anyhow::{anyhow, Context, Error, Result};
 use cgroups::create_cgroups;
 use controlgroup::Pid;
 use service::{
@@ -37,11 +37,21 @@ impl Runner {
         Command::new(&request.command)
             .args(&request.arguments)
             .spawn()
-            .map(|child| {
-                cgroups.add_task(Pid::from(&child))?;
+            .map(|mut child| {
+                cgroups
+                    .add_task(Pid::from(&child))
+                    .context("Couldn't add new process to the new Linux control group")
+                    .map_err(|err| match &child.kill() {
+                        Ok(_) => err,
+                        Err(kerr) => anyhow!(
+                            "Couldn't kill the process after failing to apply a control group: {}",
+                            kerr
+                        ),
+                    })?;
 
                 Ok(child.id().to_string())
-            })?
+            })
+            .context("Couldn't spawn the process as specified")?
     }
 
     pub fn stop(&mut self, _request: &StopRequest) -> Result<(), StopError> {
