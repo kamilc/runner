@@ -30,6 +30,9 @@ pub struct LogStream;
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
     processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>,
+
+    /// where to keep process logs
+    log_dir: PathBuf,
 }
 
 impl Runner {
@@ -88,10 +91,6 @@ impl Runner {
         unimplemented!();
     }
 
-    fn log_dir(&self) -> PathBuf {
-        unimplemented!();
-    }
-
     fn stdout_path(&self, id: &str) -> &str {
         unimplemented!();
     }
@@ -102,7 +101,11 @@ impl Runner {
 }
 
 fn insert_process(processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>, id: &str) {
-    unimplemented!();
+    // todo: think about error handling here as theoretically if the lock is poisoned
+    // we're gonna have unwrap panic here
+    let mut map = processes.write().unwrap();
+
+    (*map).insert(id.to_string(), None);
 }
 
 fn update_process(
@@ -110,5 +113,9 @@ fn update_process(
     id: &str,
     exit_code: ExitStatus,
 ) {
-    unimplemented!();
+    // todo: think about error handling here as theoretically if the lock is poisoned
+    // we're gonna have unwrap panic here
+    let mut map = processes.write().unwrap();
+
+    (*map).insert(id.to_string(), Some(exit_code));
 }
