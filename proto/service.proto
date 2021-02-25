@@ -36,8 +36,8 @@ message RunRequest {
 }
 
 message RunResponse {
-  message Error {
-    enum RunError {
+  message RunError {
+    enum Error {
       NAME_EMPTY_ERROR = 0;
       ARG_EMPTY_ERROR = 1;
       INVALID_MAX_MEMORY = 2;
@@ -51,13 +51,13 @@ message RunResponse {
 
     oneof errors {
       GeneralError general_error = 2;
-      RunError run_error = 3;
+      Error run_error = 3;
     }
   }
 
   oneof results {
     string id = 1;
-    Error error = 2;
+    RunError error = 2;
   }
 }
 
@@ -66,8 +66,8 @@ message StopRequest {
 }
 
 message StopResponse {
-  message Error {
-    enum StopError {
+  message StopError {
+    enum Error {
       PROCESS_NOT_FOUND_ERROR = 0;
       PROCESS_ALREADY_STOPPED_ERROR = 1;
       COULDNT_STOP_ERROR = 2;
@@ -77,11 +77,11 @@ message StopResponse {
 
     oneof errors {
       GeneralError general_error = 2;
-      StopError stop_error = 3;
+      Error stop_error = 3;
     }
   }
 
-  Error error = 1;
+  StopError error = 1;
 }
 
 message StatusRequest {
@@ -89,8 +89,8 @@ message StatusRequest {
 }
 
 message StatusResponse {
-  message Error {
-    enum StatusError {
+  message StatusError {
+    enum Error {
       PROCESS_NOT_FOUND_ERROR = 0;
     }
 
@@ -98,7 +98,7 @@ message StatusResponse {
 
     oneof errors {
       GeneralError general_error = 2;
-      StatusError status_error = 3;
+      Error status_error = 3;
     }
   }
 
@@ -114,7 +114,7 @@ message StatusResponse {
 
   oneof results {
     StatusResult result = 1;
-    Error error = 2;
+    StatusError error = 2;
   }
 }
 
@@ -130,8 +130,8 @@ message LogRequest {
 }
 
 message LogResponse {
-  message Error {
-    enum LogError {
+  message LogError {
+    enum Error {
       PROCESS_NOT_FOUND_ERROR = 0;
     }
 
@@ -139,12 +139,12 @@ message LogResponse {
 
     oneof errors {
       GeneralError general_error = 2;
-      LogError log_error = 3;
+      Error log_error = 3;
     }
   }
 
   oneof results {
     string data = 1;
-    Error error = 2;
+    LogError error = 2;
   }
 }
