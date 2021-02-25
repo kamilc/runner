@@ -94,12 +94,22 @@ impl Runner {
         unimplemented!();
     }
 
-    fn stdout_path(&self, id: &str) -> &str {
-        unimplemented!();
+    fn stdout_path(&self, id: &str) -> PathBuf {
+        let mut path = PathBuf::new();
+
+        path.push(&self.log_dir);
+        path.push(format!("{}.stdout.txt", id));
+
+        path
     }
 
-    fn stderr_path(&self, id: &str) -> &str {
-        unimplemented!();
+    fn stderr_path(&self, id: &str) -> PathBuf {
+        let mut path = PathBuf::new();
+
+        path.push(&self.log_dir);
+        path.push(format!("{}.stderr.txt", id));
+
+        path
     }
 
     fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
