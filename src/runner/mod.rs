@@ -12,6 +12,8 @@ use service::{
     LogRequest, RunRequest, StatusRequest, StopRequest,
 };
 use std::collections::HashMap;
+use std::fs::File;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::RwLock;
 use uuid::Uuid;
@@ -29,13 +31,16 @@ impl Runner {
     pub fn run(&mut self, request: &RunRequest) -> Result<String, RunError> {
         let id = Uuid::new_v4().to_string();
         let mut cgroups = create_cgroups(request, &id)?;
+        let stdout = File::open(self.stdout_path(&id))?;
+        let stderr = File::open(self.stderr_path(&id))?;
 
-        // todo: 1. bring back disk minor and major as it was
-        //       2. do the stdout and stderr redirection
-        //       3. store id and pid in the processed hashmap
+        // todo: 1. do the stdout and stderr redirection
+        //       2. store id and pid in the processed hashmap
 
         Command::new(&request.command)
             .args(&request.arguments)
+            .stdout(stdout)
+            .stderr(stderr)
             .spawn()
             .map(|mut child| {
                 cgroups
@@ -63,6 +68,18 @@ impl Runner {
     }
 
     pub fn log(&mut self, _request: &LogRequest) -> Result<LogStream, LogError> {
+        unimplemented!();
+    }
+
+    fn log_dir(&self) -> PathBuf {
+        unimplemented!();
+    }
+
+    fn stdout_path(&self, id: &str) -> &str {
+        unimplemented!();
+    }
+
+    fn stderr_path(&self, id: &str) -> &str {
         unimplemented!();
     }
 }
