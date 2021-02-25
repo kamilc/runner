@@ -4,6 +4,7 @@ mod service;
 use anyhow::{anyhow, Context, Error, Result};
 use cgroups::create_cgroups;
 use controlgroup::Pid;
+use log::warn;
 use service::{
     log_response::LogError,
     run_response::RunError,
@@ -15,7 +16,11 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::ExitStatus;
+use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::sync::RwLock;
+use std::thread;
 use uuid::Uuid;
 
 // todo: implement std::iter::Iterator for this stream
@@ -23,8 +28,8 @@ use uuid::Uuid;
 pub struct LogStream;
 
 pub struct Runner {
-    /// an internal map from UUID to PID
-    processes: RwLock<HashMap<String, u32>>,
+    /// an internal map from UUID to ExitStatus
+    processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>,
 }
 
 impl Runner {
@@ -33,9 +38,6 @@ impl Runner {
         let mut cgroups = create_cgroups(request, &id)?;
         let stdout = File::open(self.stdout_path(&id))?;
         let stderr = File::open(self.stderr_path(&id))?;
-
-        // todo: 1. do the stdout and stderr redirection
-        //       2. store id and pid in the processed hashmap
 
         Command::new(&request.command)
             .args(&request.arguments)
@@ -54,7 +56,20 @@ impl Runner {
                         ),
                     })?;
 
-                Ok(child.id().to_string())
+                let process_id = id.clone();
+                let processes = self.processes.clone();
+
+                std::thread::spawn(move || {
+                    insert_process(processes.clone(), &process_id);
+
+                    if let Ok(exit_status) = child.wait() {
+                        update_process(processes.clone(), &process_id, exit_status);
+                    } else {
+                        warn!("Couldn't get the exit code for {}", process_id);
+                    }
+                });
+
+                Ok(id)
             })
             .context("Couldn't spawn the process as specified")?
     }
@@ -82,4 +97,16 @@ impl Runner {
     fn stderr_path(&self, id: &str) -> &str {
         unimplemented!();
     }
+}
+
+fn insert_process(processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>, id: &str) {
+    unimplemented!();
+}
+
+fn update_process(
+    processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>,
+    id: &str,
+    exit_code: ExitStatus,
+) {
+    unimplemented!();
 }
