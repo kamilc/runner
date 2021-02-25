@@ -7,7 +7,8 @@ use controlgroup::Pid;
 use log::warn;
 use service::{
     log_response::LogError,
-    run_response::RunError,
+    run_request::Disk,
+    run_response::{run_error, RunError},
     status_response::{StatusError, StatusResult},
     stop_response::StopError,
     LogRequest, RunRequest, StatusRequest, StopRequest,
@@ -37,6 +38,8 @@ pub struct Runner {
 
 impl Runner {
     pub fn run(&mut self, request: &RunRequest) -> Result<String, RunError> {
+        self.validate_run(&request)?;
+
         let id = Uuid::new_v4().to_string();
         let mut cgroups = create_cgroups(request, &id)?;
         let stdout = File::open(self.stdout_path(&id))?;
@@ -97,6 +100,42 @@ impl Runner {
 
     fn stderr_path(&self, id: &str) -> &str {
         unimplemented!();
+    }
+
+    fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
+        if request.command.trim().is_empty() {
+            return Err(RunError {
+                description: "Given command name was empty".to_string(),
+                errors: Some(run_error::Errors::RunError(
+                    run_error::Error::NameEmptyError.into(),
+                )),
+            });
+        }
+
+        if let Some(Disk::MaxDisk(max)) = request.disk {
+            if max > 1000 {
+                return Err(RunError {
+                    description: "Given disk weight was greater than 1000 which is invalid"
+                        .to_string(),
+                    errors: Some(run_error::Errors::RunError(
+                        run_error::Error::InvalidMaxDisk.into(),
+                    )),
+                });
+            }
+        }
+
+        for arg in &request.arguments {
+            if arg.trim().is_empty() {
+                return Err(RunError {
+                    description: "One of arguments found empty".to_string(),
+                    errors: Some(run_error::Errors::RunError(
+                        run_error::Error::ArgEmptyError.into(),
+                    )),
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 
