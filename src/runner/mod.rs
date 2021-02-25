@@ -10,7 +10,7 @@ use service::{
     run_request::Disk,
     run_response::{run_error, RunError},
     status_response::{StatusError, StatusResult},
-    stop_response::StopError,
+    stop_response::{stop_error, StopError},
     LogRequest, RunRequest, StatusRequest, StopRequest,
 };
 use std::collections::HashMap;
@@ -82,7 +82,9 @@ impl Runner {
             .context("Couldn't spawn the process as specified")?
     }
 
-    pub fn stop(&mut self, _request: &StopRequest) -> Result<(), StopError> {
+    pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
+        self.validate_stop(&request)?;
+
         unimplemented!();
     }
 
@@ -143,6 +145,21 @@ impl Runner {
                     )),
                 });
             }
+        }
+
+        Ok(())
+    }
+
+    fn validate_stop(&self, request: &StopRequest) -> Result<(), StopError> {
+        let processes = self.processes.read().unwrap();
+
+        if !(*processes).contains_key(&request.id) {
+            return Err(StopError {
+                description: "Process not found".to_string(),
+                errors: Some(stop_error::Errors::StopError(
+                    stop_error::Error::ProcessNotFoundError.into(),
+                )),
+            });
         }
 
         Ok(())
