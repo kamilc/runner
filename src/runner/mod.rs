@@ -59,15 +59,17 @@ impl Runner {
                 let process_id = id.clone();
                 let processes = self.processes.clone();
 
-                std::thread::spawn(move || {
-                    insert_process(processes.clone(), &process_id);
+                thread::Builder::new()
+                    .spawn(move || {
+                        insert_process(processes.clone(), &process_id);
 
-                    if let Ok(exit_status) = child.wait() {
-                        update_process(processes.clone(), &process_id, exit_status);
-                    } else {
-                        warn!("Couldn't get the exit code for {}", process_id);
-                    }
-                });
+                        if let Ok(exit_status) = child.wait() {
+                            update_process(processes.clone(), &process_id, exit_status);
+                        } else {
+                            warn!("Couldn't get the exit code for {}", process_id);
+                        }
+                    })
+                    .context("OS refused to start a thread to watch for process exit status")?;
 
                 Ok(id)
             })
