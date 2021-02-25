@@ -16,12 +16,23 @@ enum GeneralError {
 
 message RunRequest {
   string command = 1;
-  uint32 max_memory = 2;
-  uint32 max_cpu = 3;
-  uint32 disk_minor = 4;
-  uint32 disk_major = 5;
-  uint32 max_disk = 6;
-  repeated string arguments = 7;
+
+  // following oneof's are to make these optional
+  // now that optional isn't available in Proto3
+
+  oneof memory {
+    uint64 max_memory = 2;
+  }
+
+  oneof cpu {
+    uint64 max_cpu = 3;
+  }
+
+  oneof disk {
+    uint64 max_disk = 4;
+  }
+
+  repeated string arguments = 5;
 }
 
 message RunResponse {

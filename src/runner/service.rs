@@ -1,11 +1,5 @@
 tonic::include_proto!("service");
 
-impl std::fmt::Display for run_response::Error {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unimplemented!()
-    }
-}
-
 macro_rules! impl_from_anyhow {
     ($($for:path), +) => {
         $(
