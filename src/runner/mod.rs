@@ -5,7 +5,7 @@ mod service;
 
 use anyhow::{anyhow, Context, Error, Result};
 use cgroups::create_cgroups;
-use controlgroup::Pid;
+use controlgroup;
 use log::warn;
 use service::{
     log_response::LogError,
@@ -24,6 +24,8 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::thread;
+use std::time::Duration;
+use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
 
 // todo: implement std::iter::Iterator for this stream
@@ -32,7 +34,7 @@ pub struct LogStream;
 
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
-    processes: Arc<RwLock<HashMap<String, (Pid, Option<ExitStatus>)>>>,
+    processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
 
     /// where to keep process logs
     log_dir: PathBuf,
@@ -53,7 +55,7 @@ impl Runner {
             .stderr(stderr)
             .spawn()
             .map(|mut child| {
-                let pid = Pid::from(&child);
+                let pid = controlgroup::Pid::from(&child);
 
                 cgroups
                     .add_task(pid.clone())
@@ -68,18 +70,14 @@ impl Runner {
 
                 let process_id = id.clone();
                 let processes = self.processes.clone();
+                let sys_pid = child.id();
 
                 thread::Builder::new()
                     .spawn(move || {
-                        insert_process(processes.clone(), &process_id, pid.clone());
+                        insert_process(processes.clone(), &process_id, sys_pid);
 
                         if let Ok(exit_status) = child.wait() {
-                            update_process(
-                                processes.clone(),
-                                &process_id,
-                                pid.clone(),
-                                exit_status,
-                            );
+                            update_process(processes.clone(), &process_id, sys_pid, exit_status);
                         } else {
                             warn!("Couldn't get the exit code for {}", process_id);
                         }
@@ -93,6 +91,36 @@ impl Runner {
 
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Some(pid) = self.pid_for_process(&request.id) {
+            let (send, recv) = channel();
+
+            // todo: handle the processes hashmap
+
+            thread::spawn(move || {
+                let system = sysinfo::System::new();
+
+                loop {
+                    if let Some(process) = system.get_process(pid as i32) {
+                        process.kill(sysinfo::Signal::Term);
+                    } else {
+                        send.send(()).unwrap();
+                        break;
+                    }
+                }
+            });
+
+            if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
+                let system = sysinfo::System::new();
+
+                if let Some(process) = system.get_process(pid as i32) {
+                    if !process.kill(sysinfo::Signal::Kill) {
+                        return task_error!(
+                            "Couldn't kill a process",
+                            stop_error::Error::CouldntStopError
+                        );
+                    }
+                }
+            }
+
             Ok(())
         } else {
             task_error!("Process not found", stop_error::Error::ProcessNotFoundError)
@@ -151,7 +179,7 @@ impl Runner {
         Ok(())
     }
 
-    fn pid_for_process(&self, id: &String) -> Option<Pid> {
+    fn pid_for_process(&self, id: &String) -> Option<u32> {
         let processes = self.processes.read().unwrap();
 
         if let Some((pid, _)) = (*processes).get(id) {
@@ -163,9 +191,9 @@ impl Runner {
 }
 
 fn insert_process(
-    processes: Arc<RwLock<HashMap<String, (Pid, Option<ExitStatus>)>>>,
+    processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
     id: &str,
-    pid: Pid,
+    pid: u32,
 ) {
     // todo: think about error handling here as theoretically if the lock is poisoned
     // we're gonna have unwrap panic here
@@ -175,9 +203,9 @@ fn insert_process(
 }
 
 fn update_process(
-    processes: Arc<RwLock<HashMap<String, (Pid, Option<ExitStatus>)>>>,
+    processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
     id: &str,
-    pid: Pid,
+    pid: u32,
     exit_code: ExitStatus,
 ) {
     // todo: think about error handling here as theoretically if the lock is poisoned
