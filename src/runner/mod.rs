@@ -30,7 +30,7 @@ pub struct LogStream;
 
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
-    processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>,
+    processes: Arc<RwLock<HashMap<String, (Pid, Option<ExitStatus>)>>>,
 
     /// where to keep process logs
     log_dir: PathBuf,
@@ -51,8 +51,10 @@ impl Runner {
             .stderr(stderr)
             .spawn()
             .map(|mut child| {
+                let pid = Pid::from(&child);
+
                 cgroups
-                    .add_task(Pid::from(&child))
+                    .add_task(pid.clone())
                     .context("Couldn't add new process to the new Linux control group")
                     .map_err(|err| match &child.kill() {
                         Ok(_) => err,
@@ -67,10 +69,15 @@ impl Runner {
 
                 thread::Builder::new()
                     .spawn(move || {
-                        insert_process(processes.clone(), &process_id);
+                        insert_process(processes.clone(), &process_id, pid.clone());
 
                         if let Ok(exit_status) = child.wait() {
-                            update_process(processes.clone(), &process_id, exit_status);
+                            update_process(
+                                processes.clone(),
+                                &process_id,
+                                pid.clone(),
+                                exit_status,
+                            );
                         } else {
                             warn!("Couldn't get the exit code for {}", process_id);
                         }
@@ -166,22 +173,27 @@ impl Runner {
     }
 }
 
-fn insert_process(processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>, id: &str) {
+fn insert_process(
+    processes: Arc<RwLock<HashMap<String, (Pid, Option<ExitStatus>)>>>,
+    id: &str,
+    pid: Pid,
+) {
     // todo: think about error handling here as theoretically if the lock is poisoned
     // we're gonna have unwrap panic here
     let mut map = processes.write().unwrap();
 
-    (*map).insert(id.to_string(), None);
+    (*map).insert(id.to_string(), (pid, None));
 }
 
 fn update_process(
-    processes: Arc<RwLock<HashMap<String, Option<ExitStatus>>>>,
+    processes: Arc<RwLock<HashMap<String, (Pid, Option<ExitStatus>)>>>,
     id: &str,
+    pid: Pid,
     exit_code: ExitStatus,
 ) {
     // todo: think about error handling here as theoretically if the lock is poisoned
     // we're gonna have unwrap panic here
     let mut map = processes.write().unwrap();
 
-    (*map).insert(id.to_string(), Some(exit_code));
+    (*map).insert(id.to_string(), (pid, Some(exit_code)));
 }
