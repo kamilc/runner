@@ -92,20 +92,23 @@ impl Runner {
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Some(pid) = self.pid_for_process(&request.id) {
             let (send, recv) = channel();
+            let system = sysinfo::System::new();
 
-            // todo: handle the processes hashmap
+            if let None = system.get_process(pid as i32) {
+                return task_error!(
+                    "Process already stopped",
+                    stop_error::Error::ProcessAlreadyStoppedError
+                );
+            }
 
-            thread::spawn(move || {
-                let system = sysinfo::System::new();
-
-                loop {
-                    if let Some(process) = system.get_process(pid as i32) {
-                        process.kill(sysinfo::Signal::Term);
-                    } else {
-                        send.send(()).unwrap();
-                        break;
-                    }
+            thread::spawn(move || loop {
+                if let Some(process) = system.get_process(pid as i32) {
+                    process.kill(sysinfo::Signal::Term);
+                } else {
+                    send.send(()).unwrap();
+                    break;
                 }
+                thread::sleep(Duration::from_millis(200));
             });
 
             if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
