@@ -1,4 +1,6 @@
 mod cgroups;
+
+#[macro_use]
 mod service;
 
 use anyhow::{anyhow, Context, Error, Result};
@@ -11,7 +13,7 @@ use service::{
     run_response::{run_error, RunError},
     status_response::{StatusError, StatusResult},
     stop_response::{stop_error, StopError},
-    LogRequest, RunRequest, StatusRequest, StopRequest,
+    LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
 };
 use std::collections::HashMap;
 use std::fs::File;
@@ -90,9 +92,11 @@ impl Runner {
     }
 
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
-        self.validate_stop(&request)?;
-
-        unimplemented!();
+        if let Some(pid) = self.pid_for_process(&request.id) {
+            Ok(())
+        } else {
+            task_error!("Process not found", stop_error::Error::ProcessNotFoundError)
+        }
     }
 
     pub fn status(&mut self, _request: &StatusRequest) -> Result<StatusResult, StatusError> {
@@ -123,53 +127,38 @@ impl Runner {
 
     fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
         if request.command.trim().is_empty() {
-            return Err(RunError {
-                description: "Given command name was empty".to_string(),
-                errors: Some(run_error::Errors::RunError(
-                    run_error::Error::NameEmptyError.into(),
-                )),
-            });
+            return task_error!("Command name empty", run_error::Error::NameEmptyError);
         }
 
         if let Some(Disk::MaxDisk(max)) = request.disk {
             if max > 1000 {
-                return Err(RunError {
-                    description: "Given disk weight was greater than 1000 which is invalid"
-                        .to_string(),
-                    errors: Some(run_error::Errors::RunError(
-                        run_error::Error::InvalidMaxDisk.into(),
-                    )),
-                });
+                return task_error!(
+                    "Max disk weight given greater than 1000 which is invalid",
+                    run_error::Error::InvalidMaxDisk
+                );
             }
         }
 
         for arg in &request.arguments {
             if arg.trim().is_empty() {
-                return Err(RunError {
-                    description: "One of arguments found empty".to_string(),
-                    errors: Some(run_error::Errors::RunError(
-                        run_error::Error::ArgEmptyError.into(),
-                    )),
-                });
+                return task_error!(
+                    "One of arguments found empty",
+                    run_error::Error::ArgEmptyError
+                );
             }
         }
 
         Ok(())
     }
 
-    fn validate_stop(&self, request: &StopRequest) -> Result<(), StopError> {
+    fn pid_for_process(&self, id: &String) -> Option<Pid> {
         let processes = self.processes.read().unwrap();
 
-        if !(*processes).contains_key(&request.id) {
-            return Err(StopError {
-                description: "Process not found".to_string(),
-                errors: Some(stop_error::Errors::StopError(
-                    stop_error::Error::ProcessNotFoundError.into(),
-                )),
-            });
+        if let Some((pid, _)) = (*processes).get(id) {
+            Some(pid.clone())
+        } else {
+            None
         }
-
-        Ok(())
     }
 }
 
