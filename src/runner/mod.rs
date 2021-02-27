@@ -6,20 +6,23 @@ mod service;
 use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
 use controlgroup;
+use futures::stream::Stream;
 use log::warn;
 use service::{
-    log_response::LogError,
+    log_request,
+    log_response::{log_error, LogError},
     run_request::Disk,
     run_response::{run_error, RunError},
     status_response::{status_error, status_result, Status, StatusError, StatusResult},
     stop_response::{stop_error, StopError},
-    LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
+    InternalError, LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
 };
 use std::collections::HashMap;
 use std::default::Default;
 use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::Command;
 use std::process::ExitStatus;
 use std::sync::mpsc::channel;
@@ -30,14 +33,12 @@ use std::time::Duration;
 use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
 
-// todo: implement std::iter::Iterator for this stream
-// with Item=LogResponse
-pub struct LogStream;
+type ProcessMap = Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>;
 
 #[derive(Default)]
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
-    processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
+    processes: ProcessMap,
 
     /// where to keep process logs
     log_dir: PathBuf,
@@ -165,8 +166,33 @@ impl Runner {
         }
     }
 
-    pub fn log(&mut self, _request: &LogRequest) -> Result<LogStream, LogError> {
-        unimplemented!();
+    pub fn log(
+        &mut self,
+        request: &LogRequest,
+    ) -> Result<Box<dyn Stream<Item = Result<String, LogError>>>, LogError> {
+        let map = self.processes.read().unwrap();
+
+        if let Some((_pid, _)) = map.get(&request.id) {
+            let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
+
+            match maybe_descriptor {
+                Some(descriptor) => {
+                    let log_path = match descriptor {
+                        log_request::Descriptor::Stdout => self.stdout_path(&request.id),
+                        log_request::Descriptor::Stderr => self.stderr_path(&request.id),
+                    };
+
+                    unimplemented!();
+                }
+                None => {
+                    return internal_error!(
+                      "Given descriptor is invalid. Are you using compatible version of the client?"
+                    )
+                }
+            }
+        } else {
+            task_error!("Process not found", log_error::Error::ProcessNotFoundError)
+        }
     }
 
     fn stdout_path(&self, id: &str) -> PathBuf {
@@ -224,11 +250,7 @@ impl Runner {
     }
 }
 
-fn insert_process(
-    processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
-    id: &str,
-    pid: u32,
-) {
+fn insert_process(processes: ProcessMap, id: &str, pid: u32) {
     // todo: think about error handling here as theoretically if the lock is poisoned
     // we're gonna have unwrap panic here
     let mut map = processes.write().unwrap();
@@ -236,12 +258,7 @@ fn insert_process(
     (*map).insert(id.to_string(), (pid, None));
 }
 
-fn update_process(
-    processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
-    id: &str,
-    pid: u32,
-    exit_code: ExitStatus,
-) {
+fn update_process(processes: ProcessMap, id: &str, pid: u32, exit_code: ExitStatus) {
     // todo: think about error handling here as theoretically if the lock is poisoned
     // we're gonna have unwrap panic here
     let mut map = processes.write().unwrap();

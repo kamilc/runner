@@ -12,6 +12,7 @@ service Runner {
 enum GeneralError {
   AUTHORIZATION_ERROR = 0;
   OS_ERROR = 1;
+  INTERNAL_ERROR = 2;
 }
 
 message RunRequest {

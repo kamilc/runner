@@ -21,6 +21,10 @@ pub struct TaskError {
     pub variant: i32,
 }
 
+pub struct InternalError {
+    pub description: String,
+}
+
 macro_rules! impl_from_task_error {
     ($err:path, $variant:expr) => {
         impl std::convert::From<TaskError> for $err {
@@ -34,11 +38,33 @@ macro_rules! impl_from_task_error {
     };
 }
 
+macro_rules! impl_from_internal_error {
+    ($err:path, $variant:expr) => {
+        impl std::convert::From<InternalError> for $err {
+            fn from(error: InternalError) -> $err {
+                $err {
+                    description: error.description,
+                    errors: Some($variant(GeneralError::InternalError as i32)),
+                }
+            }
+        }
+    };
+}
+
 macro_rules! task_error {
     ($desc:literal, $variant:path) => {
         Err(TaskError {
             description: $desc.to_string(),
             variant: $variant as i32,
+        }
+        .into())
+    };
+}
+
+macro_rules! internal_error {
+    ($desc:literal) => {
+        Err(InternalError {
+            description: $desc.to_string(),
         }
         .into())
     };
@@ -80,6 +106,26 @@ impl_from_task_error!(
 );
 
 impl_from_task_error!(
+    log_response::LogError,
+    log_response::log_error::Errors::LogError
+);
+
+impl_from_internal_error!(
+    run_response::RunError,
+    run_response::run_error::Errors::RunError
+);
+
+impl_from_internal_error!(
+    stop_response::StopError,
+    stop_response::stop_error::Errors::StopError
+);
+
+impl_from_internal_error!(
+    status_response::StatusError,
+    status_response::status_error::Errors::StatusError
+);
+
+impl_from_internal_error!(
     log_response::LogError,
     log_response::log_error::Errors::LogError
 );
