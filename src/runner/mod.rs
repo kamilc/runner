@@ -6,7 +6,7 @@ mod service;
 use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
 use controlgroup;
-use futures::stream::{unfold, Stream};
+use futures::stream::Stream;
 use futures::task::Poll;
 use log::warn;
 use service::{
@@ -112,7 +112,7 @@ pub struct Runner {
     processes: ProcessMap,
 
     /// where to keep process logs
-    log_dir: PathBuf,
+    log_dir: String,
 }
 
 impl Runner {
@@ -120,9 +120,11 @@ impl Runner {
         self.validate_run(&request)?;
 
         let id = Uuid::new_v4().to_string();
-        let mut cgroups = create_cgroups(request, &id)?;
-        let stdout = File::open(self.stdout_path(&id))?;
-        let stderr = File::open(self.stderr_path(&id))?;
+        let mut cgroups = create_cgroups(request, &id).context("Couldn't create a cgroup")?;
+        let stdout =
+            File::create(self.stdout_path(&id)).context("Couldn't open log file for STDOUT")?;
+        let stderr =
+            File::create(self.stderr_path(&id)).context("Couldn't open log file for STDERR")?;
 
         Command::new(&request.command)
             .args(&request.arguments)
@@ -339,4 +341,27 @@ fn update_process(processes: ProcessMap, id: &str, pid: u32, exit_code: ExitStat
     let mut map = processes.write().unwrap();
 
     (*map).insert(id.to_string(), (pid, Some(exit_code)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn proper_run_returns_correct_uuid() {
+        let mut runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        let request = RunRequest {
+            command: "date".to_string(),
+            ..Default::default()
+        };
+
+        let mut id = runner.run(&request).unwrap();
+
+        assert!(Uuid::parse_str(&id).is_ok());
+    }
 }
