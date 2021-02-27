@@ -26,8 +26,8 @@ use std::io::Read;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::process::Command;
 use std::process::ExitStatus;
+use std::process::{Child, Command};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -41,7 +41,6 @@ type ProcessMap = Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>;
 struct LogStream {
     map: ProcessMap,
     file: Arc<RwLock<File>>,
-    path: PathBuf,
     process_id: String,
     closed: bool,
 }
@@ -53,7 +52,6 @@ impl LogStream {
         Ok(LogStream {
             map: processes,
             file: Arc::new(RwLock::new(file)),
-            path: path,
             process_id: process_id,
             closed: false,
         })
@@ -181,17 +179,21 @@ impl Runner {
             }
 
             thread::spawn(move || loop {
+                let mut system = sysinfo::System::new();
+                system.refresh_processes();
+
                 if let Some(process) = system.get_process(pid as i32) {
                     process.kill(sysinfo::Signal::Term);
+                    thread::sleep(Duration::from_millis(200));
                 } else {
                     send.send(()).unwrap();
-                    break;
                 }
-                thread::sleep(Duration::from_millis(200));
             });
 
             if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
-                let system = sysinfo::System::new();
+                let mut system = sysinfo::System::new();
+
+                system.refresh_processes();
 
                 if let Some(process) = system.get_process(pid as i32) {
                     if !process.kill(sysinfo::Signal::Kill) {
@@ -315,7 +317,7 @@ impl Runner {
         Ok(())
     }
 
-    fn pid_for_process(&self, id: &String) -> Option<u32> {
+    pub fn pid_for_process(&self, id: &String) -> Option<u32> {
         let processes = self.processes.read().unwrap();
 
         if let Some((pid, _)) = (*processes).get(id) {
@@ -349,6 +351,7 @@ mod tests {
     use super::*;
     use futures::StreamExt;
     use service;
+    use sysinfo;
     use uuid::Uuid;
 
     #[test]
@@ -388,6 +391,44 @@ mod tests {
         let response = runner.status(&status_request).unwrap();
 
         assert!(response.status == service::status_response::Status::Running as i32);
+    }
+
+    #[test]
+    fn basic_stop_works() {
+        let mut runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        let run_request = RunRequest {
+            command: "/usr/bin/env".to_string(),
+            arguments: vec![
+                "bash".to_string(),
+                "-c".to_string(),
+                "for i in $(seq 1 10000000000000); do echo $i; done".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let mut id = runner.run(&run_request).unwrap();
+        let pid = runner.pid_for_process(&id).unwrap();
+
+        let mut system = sysinfo::System::new();
+        assert!(system.get_process(pid as i32).is_some());
+
+        let stop_request = StopRequest { id: id };
+        let resp = runner.stop(&stop_request);
+
+        resp.unwrap();
+
+        system.refresh_processes();
+
+        if let Some(process) = system.get_process(pid as i32) {
+            assert!(
+                process.status.as_ref().unwrap().to_string()
+                    == sysinfo::ProcessStatus::Dead.to_string()
+            );
+        }
     }
 
     #[tokio::test]
