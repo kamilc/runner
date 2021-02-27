@@ -149,10 +149,10 @@ impl Runner {
                 let processes = self.processes.clone();
                 let sys_pid = child.id();
 
+                insert_process(processes.clone(), &process_id, sys_pid);
+
                 thread::Builder::new()
                     .spawn(move || {
-                        insert_process(processes.clone(), &process_id, sys_pid);
-
                         if let Ok(exit_status) = child.wait() {
                             update_process(processes.clone(), &process_id, sys_pid, exit_status);
                         } else {
@@ -346,6 +346,7 @@ fn update_process(processes: ProcessMap, id: &str, pid: u32, exit_code: ExitStat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use service;
     use uuid::Uuid;
 
     #[test]
@@ -363,5 +364,27 @@ mod tests {
         let mut id = runner.run(&request).unwrap();
 
         assert!(Uuid::parse_str(&id).is_ok());
+    }
+
+    #[test]
+    fn status_after_proper_long_run_works() {
+        let mut runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        let run_request = RunRequest {
+            command: "sleep".to_string(),
+            arguments: vec!["60".to_string()],
+            ..Default::default()
+        };
+
+        let mut id = runner.run(&run_request).unwrap();
+
+        let status_request = StatusRequest { id: id };
+
+        let response = runner.status(&status_request).unwrap();
+
+        assert!(response.status == service::status_response::Status::Running as i32);
     }
 }
