@@ -3,7 +3,7 @@ mod cgroups;
 #[macro_use]
 mod service;
 
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
 use controlgroup;
 use log::warn;
@@ -11,12 +11,14 @@ use service::{
     log_response::LogError,
     run_request::Disk,
     run_response::{run_error, RunError},
-    status_response::{StatusError, StatusResult},
+    status_response::{status_error, status_result, Status, StatusError, StatusResult},
     stop_response::{stop_error, StopError},
     LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
 };
 use std::collections::HashMap;
+use std::default::Default;
 use std::fs::File;
+use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::ExitStatus;
@@ -32,6 +34,7 @@ use uuid::Uuid;
 // with Item=LogResponse
 pub struct LogStream;
 
+#[derive(Default)]
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
     processes: Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>,
@@ -130,8 +133,36 @@ impl Runner {
         }
     }
 
-    pub fn status(&mut self, _request: &StatusRequest) -> Result<StatusResult, StatusError> {
-        unimplemented!();
+    pub fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
+        let map = self.processes.read().unwrap();
+
+        if let Some((_, maybe_status)) = map.get(&request.id) {
+            match maybe_status {
+                Some(status) => {
+                    let result = match status.code() {
+                        Some(code) => status_result::Result::ExitCode(code),
+                        None => match status.signal() {
+                            Some(signal) => status_result::Result::Signal(signal),
+                            None => Err(anyhow!("Couldn't get exit code or the kill signal"))?,
+                        },
+                    };
+
+                    Ok(StatusResult {
+                        status: Status::Stopped as i32,
+                        result: Some(result),
+                    })
+                }
+                None => Ok(StatusResult {
+                    status: Status::Running as i32,
+                    result: None,
+                }),
+            }
+        } else {
+            task_error!(
+                "Process not found",
+                status_error::Error::ProcessNotFoundError
+            )
+        }
     }
 
     pub fn log(&mut self, _request: &LogRequest) -> Result<LogStream, LogError> {

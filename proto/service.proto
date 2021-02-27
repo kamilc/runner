@@ -105,7 +105,11 @@ message StatusResponse {
 
   message StatusResult {
     Status status = 1;
-    uint32 exit_code = 2;
+
+    oneof result {
+      int32 exit_code = 2;
+      int32 signal = 3;
+    }
   }
 
   oneof results {
