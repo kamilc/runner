@@ -6,7 +6,8 @@ mod service;
 use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
 use controlgroup;
-use futures::stream::Stream;
+use futures::stream::{unfold, Stream};
+use futures::task::Poll;
 use log::warn;
 use service::{
     log_request,
@@ -17,9 +18,11 @@ use service::{
     stop_response::{stop_error, StopError},
     InternalError, LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
 };
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::default::Default;
 use std::fs::File;
+use std::io::Read;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -34,6 +37,74 @@ use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
 
 type ProcessMap = Arc<RwLock<HashMap<String, (u32, Option<ExitStatus>)>>>;
+
+struct LogStream {
+    map: ProcessMap,
+    file: Arc<RwLock<File>>,
+    path: PathBuf,
+    process_id: String,
+    closed: bool,
+}
+
+impl LogStream {
+    pub fn open(process_id: String, processes: ProcessMap, path: PathBuf) -> Result<Self> {
+        let file = File::open(&path)?;
+
+        Ok(LogStream {
+            map: processes,
+            file: Arc::new(RwLock::new(file)),
+            path: path,
+            process_id: process_id,
+            closed: false,
+        })
+    }
+}
+
+impl Stream for LogStream {
+    type Item = Result<String, LogError>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut futures::task::Context,
+    ) -> Poll<Option<Self::Item>> {
+        if self.closed {
+            return Poll::Ready(None);
+        }
+
+        let this = Pin::<&mut LogStream>::into_inner(self);
+
+        if let Some((_, Some(_))) = this.map.read().unwrap().get(&this.process_id) {
+            // exit code is present, process has ended, we're finishing here
+            Poll::Ready(None)
+        } else {
+            let mut buffer = [0; 10];
+
+            let mut file_lock = this.file.write().unwrap();
+            let file = file_lock.borrow_mut();
+
+            if let Ok(bytes) = file.read(&mut buffer) {
+                if bytes > 0 {
+                    match std::str::from_utf8(&buffer[0..bytes]) {
+                        Ok(s) => Poll::Ready(Some(Ok(s.to_string()))),
+                        Err(err) => {
+                            // we can't decode the string. let's keep handling of
+                            // non-utf8 compatible coding as out-of-scope here
+                            this.closed = true;
+                            Poll::Ready(Some(Err(err.into())))
+                        }
+                    }
+                } else {
+                    // looks like there's no new data for now
+                    Poll::Pending
+                }
+            } else {
+                this.closed = true;
+
+                Poll::Ready(Some(Err(anyhow!("Error reading from log file").into())))
+            }
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct Runner {
@@ -172,7 +243,7 @@ impl Runner {
     ) -> Result<Box<dyn Stream<Item = Result<String, LogError>>>, LogError> {
         let map = self.processes.read().unwrap();
 
-        if let Some((_pid, _)) = map.get(&request.id) {
+        if let Some(_) = map.get(&request.id) {
             let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
 
             match maybe_descriptor {
@@ -182,7 +253,11 @@ impl Runner {
                         log_request::Descriptor::Stderr => self.stderr_path(&request.id),
                     };
 
-                    unimplemented!();
+                    Ok(Box::new(LogStream::open(
+                        request.id.clone(),
+                        self.processes.clone(),
+                        log_path,
+                    )?))
                 }
                 None => {
                     return internal_error!(
