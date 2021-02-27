@@ -75,33 +75,35 @@ impl Stream for LogStream {
 
         if let Some((_, Some(_))) = this.map.read().unwrap().get(&this.process_id) {
             // exit code is present, process has ended, we're finishing here
-            Poll::Ready(None)
-        } else {
-            let mut buffer = [0; 10];
+            if this.closed {
+                return Poll::Ready(None);
+            }
+        }
 
-            let mut file_lock = this.file.write().unwrap();
-            let file = file_lock.borrow_mut();
+        let mut buffer = [0; 32];
 
-            if let Ok(bytes) = file.read(&mut buffer) {
-                if bytes > 0 {
-                    match std::str::from_utf8(&buffer[0..bytes]) {
-                        Ok(s) => Poll::Ready(Some(Ok(s.to_string()))),
-                        Err(err) => {
-                            // we can't decode the string. let's keep handling of
-                            // non-utf8 compatible coding as out-of-scope here
-                            this.closed = true;
-                            Poll::Ready(Some(Err(err.into())))
-                        }
+        let mut file_lock = this.file.write().unwrap();
+        let file = file_lock.borrow_mut();
+
+        if let Ok(bytes) = file.read(&mut buffer) {
+            if bytes > 0 {
+                match std::str::from_utf8(&buffer[0..bytes]) {
+                    Ok(s) => Poll::Ready(Some(Ok(s.to_string()))),
+                    Err(err) => {
+                        // we can't decode the string. let's keep handling of
+                        // non-utf8 compatible coding as out-of-scope here
+                        this.closed = true;
+                        Poll::Ready(Some(Err(err.into())))
                     }
-                } else {
-                    // looks like there's no new data for now
-                    Poll::Pending
                 }
             } else {
-                this.closed = true;
-
-                Poll::Ready(Some(Err(anyhow!("Error reading from log file").into())))
+                // looks like there's no new data for now
+                Poll::Pending
             }
+        } else {
+            this.closed = true;
+
+            Poll::Ready(Some(Err(anyhow!("Error reading from log file").into())))
         }
     }
 }
@@ -239,10 +241,7 @@ impl Runner {
         }
     }
 
-    pub fn log(
-        &mut self,
-        request: &LogRequest,
-    ) -> Result<Box<dyn Stream<Item = Result<String, LogError>>>, LogError> {
+    pub fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
         let map = self.processes.read().unwrap();
 
         if let Some(_) = map.get(&request.id) {
@@ -255,11 +254,11 @@ impl Runner {
                         log_request::Descriptor::Stderr => self.stderr_path(&request.id),
                     };
 
-                    Ok(Box::new(LogStream::open(
+                    Ok(LogStream::open(
                         request.id.clone(),
                         self.processes.clone(),
                         log_path,
-                    )?))
+                    )?)
                 }
                 None => {
                     return internal_error!(
@@ -345,7 +344,10 @@ fn update_process(processes: ProcessMap, id: &str, pid: u32, exit_code: ExitStat
 
 #[cfg(test)]
 mod tests {
+    extern crate tokio;
+
     use super::*;
+    use futures::StreamExt;
     use service;
     use uuid::Uuid;
 
@@ -386,5 +388,37 @@ mod tests {
         let response = runner.status(&status_request).unwrap();
 
         assert!(response.status == service::status_response::Status::Running as i32);
+    }
+
+    #[tokio::test]
+    async fn simple_case_of_logs_works() {
+        let mut runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        let run_request = RunRequest {
+            command: "/usr/bin/env".to_string(),
+            arguments: vec![
+                "bash".to_string(),
+                "-c".to_string(),
+                "for i in $(seq 1 4); do echo $i; done".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let mut id = runner.run(&run_request).unwrap();
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        let log_request = LogRequest {
+            id: id,
+            descriptor: log_request::Descriptor::Stdout as i32,
+        };
+
+        let mut stream = runner.log(&log_request).unwrap();
+        let first_value = stream.next().await;
+
+        assert!(first_value.unwrap().unwrap() == "1\n2\n3\n4\n");
     }
 }
