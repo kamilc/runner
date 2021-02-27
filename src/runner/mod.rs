@@ -372,6 +372,30 @@ mod tests {
     }
 
     #[test]
+    fn incorrect_run_returns_error() {
+        let mut runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        let request = RunRequest {
+            command: "date".to_string(),
+            disk: Some(service::run_request::Disk::MaxDisk(2000)),
+            ..Default::default()
+        };
+
+        let res = runner.run(&request);
+
+        assert!(res.is_err());
+        assert!(
+            res.err().unwrap().errors.unwrap()
+                == service::run_response::run_error::Errors::RunError(
+                    service::run_response::run_error::Error::InvalidMaxDisk as i32
+                )
+        );
+    }
+
+    #[test]
     fn status_after_proper_long_run_works() {
         let mut runner = Runner {
             log_dir: "tmp".to_string(),
