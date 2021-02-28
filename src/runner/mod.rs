@@ -60,7 +60,7 @@ impl Runner {
                 let pid = controlgroup::Pid::from(&child);
 
                 cgroups
-                    .add_task(pid.clone())
+                    .add_task(pid)
                     .context("Couldn't add new process to the new Linux control group")
                     .map_err(|err| match &child.kill() {
                         Ok(_) => err,
@@ -79,7 +79,7 @@ impl Runner {
                 thread::Builder::new()
                     .spawn(move || {
                         if let Ok(exit_status) = child.wait() {
-                            update_process(processes.clone(), &process_id, sys_pid, exit_status);
+                            update_process(processes, &process_id, sys_pid, exit_status);
                         } else {
                             warn!("Couldn't get the exit code for {}", process_id);
                         }
@@ -246,7 +246,7 @@ impl Runner {
         let processes = self.processes.read().unwrap();
 
         if let Some((pid, _)) = (*processes).get(id) {
-            Some(pid.clone())
+            Some(*pid)
         } else {
             None
         }
