@@ -94,7 +94,7 @@ impl Runner {
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Some(pid) = self.pid_for_process(&request.id) {
             let (send, recv) = channel();
-            let system = sysinfo::System::new();
+            let mut system = sysinfo::System::new();
 
             if let None = system.get_process(pid as i32) {
                 return task_error!(
@@ -104,21 +104,16 @@ impl Runner {
             }
 
             thread::spawn(move || loop {
-                let mut system = sysinfo::System::new();
-                system.refresh_processes();
-
                 if let Some(process) = system.get_process(pid as i32) {
                     process.kill(sysinfo::Signal::Term);
-                    thread::sleep(Duration::from_millis(200));
+                    system.refresh_processes();
                 } else {
                     send.send(()).unwrap();
                 }
             });
 
             if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
-                let mut system = sysinfo::System::new();
-
-                system.refresh_processes();
+                let system = sysinfo::System::new();
 
                 if let Some(process) = system.get_process(pid as i32) {
                     if !process.kill(sysinfo::Signal::Kill) {
