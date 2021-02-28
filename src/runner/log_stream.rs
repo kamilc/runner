@@ -32,7 +32,7 @@ impl LogStream {
 }
 
 impl Stream for LogStream {
-    type Item = Result<String, LogError>;
+    type Item = Result<Vec<u8>, LogError>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -58,15 +58,7 @@ impl Stream for LogStream {
 
         if let Ok(bytes) = file.read(&mut buffer) {
             if bytes > 0 {
-                match std::str::from_utf8(&buffer[0..bytes]) {
-                    Ok(s) => Poll::Ready(Some(Ok(s.to_string()))),
-                    Err(err) => {
-                        // we can't decode the string. let's keep handling of
-                        // non-utf8 compatible coding as out-of-scope here
-                        this.closed = true;
-                        Poll::Ready(Some(Err(err.into())))
-                    }
-                }
+                Poll::Ready(Some(Ok(buffer[0..bytes].to_vec())))
             } else {
                 // looks like there's no new data for now
                 Poll::Pending

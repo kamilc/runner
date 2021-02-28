@@ -145,7 +145,7 @@ message LogResponse {
   }
 
   oneof results {
-    string data = 1;
+    bytes data = 1;
     LogError error = 2;
   }
 }

@@ -388,6 +388,6 @@ mod tests {
         let mut stream = runner.log(&log_request).unwrap();
         let first_value = stream.next().await;
 
-        assert!(first_value.unwrap().unwrap() == "1\n2\n3\n4\n");
+        assert!(first_value.unwrap().unwrap() == "1\n2\n3\n4\n".as_bytes());
     }
 }
