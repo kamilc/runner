@@ -270,7 +270,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut id = runner.run(&request).unwrap();
+        let id = runner.run(&request).unwrap();
 
         assert!(Uuid::parse_str(&id).is_ok());
     }
@@ -312,7 +312,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut id = runner.run(&run_request).unwrap();
+        let id = runner.run(&run_request).unwrap();
 
         let status_request = StatusRequest { id: id };
 
@@ -338,7 +338,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut id = runner.run(&run_request).unwrap();
+        let id = runner.run(&run_request).unwrap();
         let pid = runner.pid_for_process(&id).unwrap();
 
         let mut system = sysinfo::System::new();
@@ -376,7 +376,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut id = runner.run(&run_request).unwrap();
+        let id = runner.run(&run_request).unwrap();
 
         std::thread::sleep(Duration::from_millis(100));
 
