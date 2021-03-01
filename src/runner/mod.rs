@@ -194,7 +194,7 @@ impl Runner {
                     Ok(LogStream::open(
                         request.id.clone(),
                         self.processes.clone(),
-                        log_path,
+                        log_path.as_path(),
                     )?)
                 }
                 None => {

@@ -6,7 +6,7 @@ use futures::task::Poll;
 use std::borrow::BorrowMut;
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -30,7 +30,7 @@ pub struct LogStream {
 
 impl LogStream {
     /// Creates a stream of messages, ready to be polled for new data
-    pub fn open(process_id: String, processes: ProcessMap, path: PathBuf) -> Result<Self> {
+    pub fn open(process_id: String, processes: ProcessMap, path: &Path) -> Result<Self> {
         let file = File::open(&path).context("Couldn't open log file")?;
 
         Ok(LogStream {
