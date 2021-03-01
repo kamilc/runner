@@ -30,13 +30,15 @@ pub struct LogStream {
 
 impl LogStream {
     /// Creates a stream of messages, ready to be polled for new data
-    pub fn open(process_id: String, processes: ProcessMap, path: &Path) -> Result<Self> {
-        let file = File::open(&path).context("Couldn't open log file")?;
+    pub fn open(process_id: String, map: ProcessMap, path: &Path) -> Result<Self> {
+        let file = Arc::new(RwLock::new(
+            File::open(&path).context("Couldn't open log file")?,
+        ));
 
         Ok(LogStream {
-            map: processes,
-            file: Arc::new(RwLock::new(file)),
-            process_id: process_id,
+            map,
+            file,
+            process_id,
             closed: false,
         })
     }
