@@ -30,7 +30,7 @@ pub struct TaskError {
 /// a general error as defined in teh service.
 /// Provided here to keep error types handling away from the
 /// logic to keep it clear to think about
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct InternalError {
     pub description: String,
 }
@@ -40,7 +40,7 @@ macro_rules! impl_from_task_error {
         impl std::convert::From<TaskError> for $err {
             fn from(error: TaskError) -> $err {
                 $err {
-                    description: error.description,
+                    description: error.description.to_string(),
                     errors: Some($variant(error.variant)),
                 }
             }
@@ -53,30 +53,11 @@ macro_rules! impl_from_internal_error {
         impl std::convert::From<InternalError> for $err {
             fn from(error: InternalError) -> $err {
                 $err {
-                    description: error.description,
+                    description: error.description.to_string(),
                     errors: Some($variant(GeneralError::InternalError as i32)),
                 }
             }
         }
-    };
-}
-
-macro_rules! task_error {
-    ($desc:literal, $variant:path) => {
-        Err(TaskError {
-            description: $desc.to_string(),
-            variant: $variant as i32,
-        }
-        .into())
-    };
-}
-
-macro_rules! internal_error {
-    ($desc:literal) => {
-        Err(InternalError {
-            description: $desc.to_string(),
-        }
-        .into())
     };
 }
 

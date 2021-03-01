@@ -110,10 +110,11 @@ impl Runner {
             let mut system = sysinfo::System::new();
 
             if let None = system.get_process(pid as i32) {
-                return task_error!(
-                    "Process already stopped",
-                    stop_error::Error::ProcessAlreadyStoppedError
-                );
+                return Err(TaskError {
+                    description: "Process already stopped".to_string(),
+                    variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
+                }
+                .into());
             }
 
             thread::spawn(move || loop {
@@ -130,17 +131,22 @@ impl Runner {
 
                 if let Some(process) = system.get_process(pid as i32) {
                     if !process.kill(sysinfo::Signal::Kill) {
-                        return task_error!(
-                            "Couldn't kill a process",
-                            stop_error::Error::CouldntStopError
-                        );
+                        return Err(TaskError {
+                            description: "Couldn't kill a process".to_string(),
+                            variant: stop_error::Error::CouldntStopError as i32,
+                        }
+                        .into());
                     }
                 }
             }
 
             Ok(())
         } else {
-            task_error!("Process not found", stop_error::Error::ProcessNotFoundError)
+            return Err(TaskError {
+                description: "Process not found".to_string(),
+                variant: stop_error::Error::ProcessNotFoundError as i32,
+            }
+            .into());
         }
     }
 
@@ -175,10 +181,11 @@ impl Runner {
                 Running => Ok(StatusResult { finish: None }),
             }
         } else {
-            task_error!(
-                "Process not found",
-                status_error::Error::ProcessNotFoundError
-            )
+            return Err(TaskError {
+                description: "Process not found".to_string(),
+                variant: status_error::Error::ProcessNotFoundError as i32,
+            }
+            .into());
         }
     }
 
@@ -204,14 +211,16 @@ impl Runner {
                         self.buffer_size.unwrap_or(256),
                     )?)
                 }
-                None => {
-                    return internal_error!(
-                      "Given descriptor is invalid. Are you using compatible version of the client?"
-                    )
-                }
+                None => return Err(InternalError {
+                    description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
+                }.into())
             }
         } else {
-            task_error!("Process not found", log_error::Error::ProcessNotFoundError)
+            return Err(TaskError {
+                description: "Process not found".to_string(),
+                variant: log_error::Error::ProcessNotFoundError as i32,
+            }
+            .into());
         }
     }
 
@@ -238,24 +247,31 @@ impl Runner {
     /// Validates the "run process" request
     fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
         if request.command.trim().is_empty() {
-            return task_error!("Command name empty", run_error::Error::NameEmptyError);
+            return Err(TaskError {
+                description: "Command name empty".to_string(),
+                variant: run_error::Error::NameEmptyError as i32,
+            }
+            .into());
         }
 
         if let Some(Disk::MaxDisk(max)) = request.disk {
             if max > 1000 {
-                return task_error!(
-                    "Max disk weight given greater than 1000 which is invalid",
-                    run_error::Error::InvalidMaxDisk
-                );
+                return Err(TaskError {
+                    description: "Max disk weight given greater than 1000 which is invalid"
+                        .to_string(),
+                    variant: run_error::Error::InvalidMaxDisk as i32,
+                }
+                .into());
             }
         }
 
         for arg in &request.arguments {
             if arg.trim().is_empty() {
-                return task_error!(
-                    "One of arguments found empty",
-                    run_error::Error::ArgEmptyError
-                );
+                return Err(TaskError {
+                    description: "One of arguments found empty".to_string(),
+                    variant: run_error::Error::ArgEmptyError as i32,
+                }
+                .into());
             }
         }
 
