@@ -88,8 +88,8 @@ impl Stream for LogStream {
             } else {
                 // looks like there's no new data for now
                 let waker = cx.waker().clone();
-                std::thread::spawn(|| {
-                    std::thread::sleep(Duration::from_millis(100));
+                tokio::spawn(async {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                     waker.wake();
                 });
                 Poll::Pending

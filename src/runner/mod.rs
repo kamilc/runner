@@ -30,7 +30,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
@@ -52,6 +51,10 @@ pub struct Runner {
 impl Runner {
     /// Executes given command. Allows to specify the command name, arguments and
     /// resource constraints. Returns a UUID of the process or an error.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called from outside of the Tokio runtime.
     pub fn run(&mut self, request: &RunRequest) -> Result<String, RunError> {
         self.validate_run(&request)?;
 
@@ -88,16 +91,14 @@ impl Runner {
                 (*map).insert(id.to_string(), (child.id(), Running));
 
                 let processes = Arc::clone(&self.processes);
-                thread::Builder::new()
-                    .spawn(move || {
-                        if let Ok(exit_status) = child.wait() {
-                            let mut map = processes.write().unwrap();
-                            (*map).insert(process_id.to_string(), (sys_pid, Stopped(exit_status)));
-                        } else {
-                            warn!("Couldn't get the exit code for {}", process_id);
-                        }
-                    })
-                    .context("OS refused to start a thread to watch for process exit status")?;
+                tokio::spawn(async move {
+                    if let Ok(exit_status) = child.wait() {
+                        let mut map = processes.write().unwrap();
+                        (*map).insert(process_id.to_string(), (sys_pid, Stopped(exit_status)));
+                    } else {
+                        warn!("Couldn't get the exit code for {}", process_id);
+                    }
+                });
 
                 Ok(id)
             })
@@ -105,6 +106,10 @@ impl Runner {
     }
 
     /// Stops a running process if it was started by this instance of the Runner
+    ///
+    /// # Panics
+    ///
+    /// Panics if called from outside of the Tokio runtime.
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Some(pid) = self.pid_for_process(&request.id) {
             let (send, recv) = channel();
@@ -118,12 +123,14 @@ impl Runner {
                 .into());
             }
 
-            thread::spawn(move || loop {
-                if let Some(process) = system.get_process(pid as i32) {
-                    process.kill(sysinfo::Signal::Term);
-                    system.refresh_processes();
-                } else {
-                    send.send(()).unwrap();
+            tokio::spawn(async move {
+                loop {
+                    if let Some(process) = system.get_process(pid as i32) {
+                        process.kill(sysinfo::Signal::Term);
+                        system.refresh_processes();
+                    } else {
+                        send.send(()).unwrap();
+                    }
                 }
             });
 
@@ -301,8 +308,8 @@ mod tests {
     use sysinfo;
     use uuid::Uuid;
 
-    #[test]
-    fn proper_run_returns_correct_uuid() {
+    #[tokio::test]
+    async fn proper_run_returns_correct_uuid() {
         let mut runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
@@ -318,8 +325,8 @@ mod tests {
         assert!(Uuid::parse_str(&id).is_ok());
     }
 
-    #[test]
-    fn incorrect_run_returns_error() {
+    #[tokio::test]
+    async fn incorrect_run_returns_error() {
         let mut runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
@@ -342,8 +349,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn status_after_proper_long_run_works() {
+    #[tokio::test]
+    async fn status_after_proper_long_run_works() {
         let mut runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
@@ -364,8 +371,8 @@ mod tests {
         assert!(response.finish.is_none());
     }
 
-    #[test]
-    fn basic_stop_works() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn basic_stop_works() {
         let mut runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
