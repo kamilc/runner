@@ -420,7 +420,11 @@ mod tests {
 
         let id = runner.run(&run_request).unwrap();
 
-        std::thread::sleep(Duration::from_millis(100));
+        // there's no need to wait for logs here since the
+        // following log request is an async stream of values anyway
+        // and it does its own waiting
+        // (previous version had a thread::sleep here which was a remnant
+        // of dev+debug time - it wasn't intended to stay here)
 
         let log_request = LogRequest {
             id: id,
