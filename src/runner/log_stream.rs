@@ -10,6 +10,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::time::Duration;
 
 /// A struct representing the stream of stdout or stderr data of a process.
 /// This struct implements futures::stream::Stream as well as some common traits
@@ -43,12 +44,15 @@ impl LogStream {
             File::open(&path).context("Couldn't open log file")?,
         ));
 
+        let mut buffer = Vec::with_capacity(buffer_size);
+        buffer.resize_with(buffer_size, Default::default);
+
         Ok(LogStream {
             map,
             file,
             process_id,
             closed: false,
-            buffer: Vec::with_capacity(buffer_size),
+            buffer,
         })
     }
 }
@@ -60,7 +64,7 @@ impl Stream for LogStream {
     /// reaching the end of file finishes this stream.
     fn poll_next(
         self: Pin<&mut Self>,
-        _cx: &mut futures::task::Context,
+        cx: &mut futures::task::Context,
     ) -> Poll<Option<Self::Item>> {
         if self.closed {
             return Poll::Ready(None);
@@ -83,6 +87,11 @@ impl Stream for LogStream {
                 Poll::Ready(Some(Ok(this.buffer[0..bytes].to_vec())))
             } else {
                 // looks like there's no new data for now
+                let waker = cx.waker().clone();
+                std::thread::spawn(|| {
+                    std::thread::sleep(Duration::from_millis(100));
+                    waker.wake();
+                });
                 Poll::Pending
             }
         } else {

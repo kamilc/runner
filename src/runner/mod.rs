@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn simple_case_of_logs_works() {
+    async fn gathering_logs_via_log_request_and_responce_stream_works_asynchronously() {
         let mut runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
