@@ -26,11 +26,19 @@ pub struct LogStream {
 
     /// Internal state variable telling if reading can continue
     closed: bool,
+
+    /// Internal buffer for reading from the file
+    buffer: Vec<u8>,
 }
 
 impl LogStream {
     /// Creates a stream of messages, ready to be polled for new data
-    pub fn open(process_id: String, map: ProcessMap, path: &Path) -> Result<Self> {
+    pub fn open(
+        process_id: String,
+        map: ProcessMap,
+        path: &Path,
+        buffer_size: usize,
+    ) -> Result<Self> {
         let file = Arc::new(RwLock::new(
             File::open(&path).context("Couldn't open log file")?,
         ));
@@ -40,6 +48,7 @@ impl LogStream {
             file,
             process_id,
             closed: false,
+            buffer: Vec::with_capacity(buffer_size),
         })
     }
 }
@@ -66,14 +75,12 @@ impl Stream for LogStream {
             }
         }
 
-        let mut buffer = [0; 32];
-
         let mut file_lock = this.file.write().unwrap();
         let file = file_lock.borrow_mut();
 
-        if let Ok(bytes) = file.read(&mut buffer) {
+        if let Ok(bytes) = file.read(&mut this.buffer) {
             if bytes > 0 {
-                Poll::Ready(Some(Ok(buffer[0..bytes].to_vec())))
+                Poll::Ready(Some(Ok(this.buffer[0..bytes].to_vec())))
             } else {
                 // looks like there's no new data for now
                 Poll::Pending

@@ -40,6 +40,9 @@ pub struct Runner {
 
     /// where to keep process logs
     log_dir: String,
+
+    /// The size of the buffer for streaming logs
+    buffer_size: Option<usize>,
 }
 
 impl Runner {
@@ -195,6 +198,7 @@ impl Runner {
                         request.id.clone(),
                         self.processes.clone(),
                         log_path.as_path(),
+                        self.buffer_size.unwrap_or(256),
                     )?)
                 }
                 None => {
