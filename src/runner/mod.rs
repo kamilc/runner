@@ -28,9 +28,9 @@ use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::mpsc::channel;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::time::Duration;
+use std::time::Instant;
 use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
 
@@ -113,8 +113,9 @@ impl Runner {
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if let Some(pid) = self.pid_for_process(&id) {
-                let (send, recv) = channel();
                 let mut system = sysinfo::System::new();
+                let barrier = Arc::new(Barrier::new(2));
+                let subthread_barrier = Arc::clone(&barrier);
 
                 if let None = system.get_process(pid as i32) {
                     return Err(TaskError {
@@ -125,27 +126,36 @@ impl Runner {
                 }
 
                 tokio::spawn(async move {
+                    let start = Instant::now();
+
                     loop {
                         if let Some(process) = system.get_process(pid as i32) {
                             process.kill(sysinfo::Signal::Term);
+
+                            // let's give the subprocess small time to die
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+
                             system.refresh_processes();
                         } else {
-                            send.send(()).unwrap();
+                            if start.elapsed().as_secs() > 5 {
+                                break;
+                            }
                         }
                     }
+
+                    subthread_barrier.wait();
                 });
 
-                if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
-                    let system = sysinfo::System::new();
+                barrier.wait();
+                let system = sysinfo::System::new();
 
-                    if let Some(process) = system.get_process(pid as i32) {
-                        if !process.kill(sysinfo::Signal::Kill) {
-                            return Err(TaskError {
-                                description: "Couldn't kill a process".to_string(),
-                                variant: stop_error::Error::CouldntStopError as i32,
-                            }
-                            .into());
+                if let Some(process) = system.get_process(pid as i32) {
+                    if !process.kill(sysinfo::Signal::Kill) {
+                        return Err(TaskError {
+                            description: "Couldn't kill a process".to_string(),
+                            variant: stop_error::Error::CouldntStopError as i32,
                         }
+                        .into());
                     }
                 }
 
