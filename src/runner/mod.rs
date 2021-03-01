@@ -55,10 +55,10 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub fn run(&mut self, request: &RunRequest) -> Result<String, RunError> {
+    pub fn run(&mut self, request: &RunRequest) -> Result<Uuid, RunError> {
         self.validate_run(&request)?;
 
-        let id = Uuid::new_v4().to_string();
+        let id = Uuid::new_v4();
         let mut cgroups = create_cgroups(request, &id).context("Couldn't create a cgroup")?;
         let stdout =
             File::create(self.stdout_path(&id)).context("Couldn't open log file for STDOUT")?;
@@ -88,13 +88,13 @@ impl Runner {
                 let sys_pid = child.id();
 
                 let mut map = self.processes.write().unwrap();
-                (*map).insert(id.to_string(), (child.id(), Running));
+                (*map).insert(id, (child.id(), Running));
 
                 let processes = Arc::clone(&self.processes);
                 tokio::spawn(async move {
                     if let Ok(exit_status) = child.wait() {
                         let mut map = processes.write().unwrap();
-                        (*map).insert(process_id.to_string(), (sys_pid, Stopped(exit_status)));
+                        (*map).insert(process_id, (sys_pid, Stopped(exit_status)));
                     } else {
                         warn!("Couldn't get the exit code for {}", process_id);
                     }
@@ -111,48 +111,56 @@ impl Runner {
     ///
     /// Panics if called from outside of the Tokio runtime.
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
-        if let Some(pid) = self.pid_for_process(&request.id) {
-            let (send, recv) = channel();
-            let mut system = sysinfo::System::new();
+        if let Ok(id) = Uuid::parse_str(&request.id) {
+            if let Some(pid) = self.pid_for_process(&id) {
+                let (send, recv) = channel();
+                let mut system = sysinfo::System::new();
 
-            if let None = system.get_process(pid as i32) {
+                if let None = system.get_process(pid as i32) {
+                    return Err(TaskError {
+                        description: "Process already stopped".to_string(),
+                        variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
+                    }
+                    .into());
+                }
+
+                tokio::spawn(async move {
+                    loop {
+                        if let Some(process) = system.get_process(pid as i32) {
+                            process.kill(sysinfo::Signal::Term);
+                            system.refresh_processes();
+                        } else {
+                            send.send(()).unwrap();
+                        }
+                    }
+                });
+
+                if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
+                    let system = sysinfo::System::new();
+
+                    if let Some(process) = system.get_process(pid as i32) {
+                        if !process.kill(sysinfo::Signal::Kill) {
+                            return Err(TaskError {
+                                description: "Couldn't kill a process".to_string(),
+                                variant: stop_error::Error::CouldntStopError as i32,
+                            }
+                            .into());
+                        }
+                    }
+                }
+
+                Ok(())
+            } else {
                 return Err(TaskError {
-                    description: "Process already stopped".to_string(),
-                    variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
+                    description: "Process not found".to_string(),
+                    variant: stop_error::Error::ProcessNotFoundError as i32,
                 }
                 .into());
             }
-
-            tokio::spawn(async move {
-                loop {
-                    if let Some(process) = system.get_process(pid as i32) {
-                        process.kill(sysinfo::Signal::Term);
-                        system.refresh_processes();
-                    } else {
-                        send.send(()).unwrap();
-                    }
-                }
-            });
-
-            if let Err(_) = recv.recv_timeout(Duration::from_millis(5000)) {
-                let system = sysinfo::System::new();
-
-                if let Some(process) = system.get_process(pid as i32) {
-                    if !process.kill(sysinfo::Signal::Kill) {
-                        return Err(TaskError {
-                            description: "Couldn't kill a process".to_string(),
-                            variant: stop_error::Error::CouldntStopError as i32,
-                        }
-                        .into());
-                    }
-                }
-            }
-
-            Ok(())
         } else {
             return Err(TaskError {
-                description: "Process not found".to_string(),
-                variant: stop_error::Error::ProcessNotFoundError as i32,
+                description: "Invalid process id".to_string(),
+                variant: stop_error::Error::InvalidId as i32,
             }
             .into());
         }
@@ -161,37 +169,49 @@ impl Runner {
     /// Fetches the status of the process if it was started by this instanmce of the Runner.
     /// If the process has finished, returns an exit code or the signal that killed it
     pub fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
-        let map = self.processes.read().unwrap();
+        if let Ok(id) = Uuid::parse_str(&request.id) {
+            let map = self.processes.read().unwrap();
 
-        if let Some((_, process_status)) = map.get(&request.id) {
-            match process_status {
-                Stopped(status) => {
-                    let result = match status.code() {
-                        Some(code) => status_result::Finish::Result(status_result::ExitResult {
-                            exit: Some(status_result::exit_result::Exit::Code(code)),
-                            kill: None,
-                        }),
-                        None => match status.signal() {
-                            Some(signal) => {
+            if let Some((_, process_status)) = map.get(&id) {
+                match process_status {
+                    Stopped(status) => {
+                        let result = match status.code() {
+                            Some(code) => {
                                 status_result::Finish::Result(status_result::ExitResult {
-                                    exit: None,
-                                    kill: Some(status_result::exit_result::Kill::Signal(signal)),
+                                    exit: Some(status_result::exit_result::Exit::Code(code)),
+                                    kill: None,
                                 })
                             }
-                            None => Err(anyhow!("Couldn't get exit code or the kill signal"))?,
-                        },
-                    };
+                            None => match status.signal() {
+                                Some(signal) => {
+                                    status_result::Finish::Result(status_result::ExitResult {
+                                        exit: None,
+                                        kill: Some(status_result::exit_result::Kill::Signal(
+                                            signal,
+                                        )),
+                                    })
+                                }
+                                None => Err(anyhow!("Couldn't get exit code or the kill signal"))?,
+                            },
+                        };
 
-                    Ok(StatusResult {
-                        finish: Some(result),
-                    })
+                        Ok(StatusResult {
+                            finish: Some(result),
+                        })
+                    }
+                    Running => Ok(StatusResult { finish: None }),
                 }
-                Running => Ok(StatusResult { finish: None }),
+            } else {
+                return Err(TaskError {
+                    description: "Process not found".to_string(),
+                    variant: status_error::Error::ProcessNotFoundError as i32,
+                }
+                .into());
             }
         } else {
             return Err(TaskError {
-                description: "Process not found".to_string(),
-                variant: status_error::Error::ProcessNotFoundError as i32,
+                description: "Invalid process id".to_string(),
+                variant: status_error::Error::InvalidId as i32,
             }
             .into());
         }
@@ -201,19 +221,19 @@ impl Runner {
     /// futures::streams::Stream.
     pub fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
         let map = self.processes.read().unwrap();
+        if let Ok(id) = Uuid::parse_str(&request.id) {
+            if let Some(_) = map.get(&id) {
+                let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
 
-        if let Some(_) = map.get(&request.id) {
-            let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
-
-            match maybe_descriptor {
+                match maybe_descriptor {
                 Some(descriptor) => {
                     let log_path = match descriptor {
-                        log_request::Descriptor::Stdout => self.stdout_path(&request.id),
-                        log_request::Descriptor::Stderr => self.stderr_path(&request.id),
+                        log_request::Descriptor::Stdout => self.stdout_path(&id),
+                        log_request::Descriptor::Stderr => self.stderr_path(&id),
                     };
 
                     Ok(LogStream::open(
-                        request.id.clone(),
+                        id,
                         Arc::clone(&self.processes),
                         log_path.as_path(),
                         self.buffer_size.unwrap_or(256),
@@ -223,17 +243,24 @@ impl Runner {
                     description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
                 }.into())
             }
+            } else {
+                return Err(TaskError {
+                    description: "Process not found".to_string(),
+                    variant: log_error::Error::ProcessNotFoundError as i32,
+                }
+                .into());
+            }
         } else {
             return Err(TaskError {
-                description: "Process not found".to_string(),
-                variant: log_error::Error::ProcessNotFoundError as i32,
+                description: "Invalid process id".to_string(),
+                variant: log_error::Error::InvalidId as i32,
             }
             .into());
         }
     }
 
     /// Returns the path to stdout file for a process
-    fn stdout_path(&self, id: &str) -> PathBuf {
+    fn stdout_path(&self, id: &Uuid) -> PathBuf {
         let mut path = PathBuf::new();
 
         path.push(&self.log_dir);
@@ -243,7 +270,7 @@ impl Runner {
     }
 
     /// Returns the path to stderr file for a process
-    fn stderr_path(&self, id: &str) -> PathBuf {
+    fn stderr_path(&self, id: &Uuid) -> PathBuf {
         let mut path = PathBuf::new();
 
         path.push(&self.log_dir);
@@ -287,7 +314,7 @@ impl Runner {
     }
 
     /// Returns the PID for a given UUID id of the process
-    pub fn pid_for_process(&self, id: &String) -> Option<u32> {
+    pub fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
         let processes = self.processes.read().unwrap();
 
         if let Some((pid, _)) = (*processes).get(id) {
@@ -320,9 +347,7 @@ mod tests {
             ..Default::default()
         };
 
-        let id = runner.run(&request).unwrap();
-
-        assert!(Uuid::parse_str(&id).is_ok());
+        runner.run(&request).unwrap();
     }
 
     #[tokio::test]
@@ -364,7 +389,7 @@ mod tests {
 
         let id = runner.run(&run_request).unwrap();
 
-        let status_request = StatusRequest { id: id };
+        let status_request = StatusRequest { id: id.to_string() };
 
         let response = runner.status(&status_request).unwrap();
 
@@ -394,7 +419,7 @@ mod tests {
         let mut system = sysinfo::System::new();
         assert!(system.get_process(pid as i32).is_some());
 
-        let stop_request = StopRequest { id: id };
+        let stop_request = StopRequest { id: id.to_string() };
         let resp = runner.stop(&stop_request);
 
         resp.unwrap();
@@ -435,7 +460,7 @@ mod tests {
         // of dev+debug time - it wasn't intended to stay here)
 
         let log_request = LogRequest {
-            id: id,
+            id: id.to_string(),
             descriptor: log_request::Descriptor::Stdout as i32,
         };
 

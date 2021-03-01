@@ -5,9 +5,10 @@ use controlgroup::v1::{Builder, UnifiedRepr};
 use anyhow::{Context, Result};
 use std::convert::TryFrom;
 use std::path::PathBuf;
+use uuid::Uuid;
 
-pub fn create_cgroups(request: &RunRequest, id: &str) -> Result<UnifiedRepr> {
-    let mut builder = Builder::new(PathBuf::from(id));
+pub fn create_cgroups(request: &RunRequest, id: &Uuid) -> Result<UnifiedRepr> {
+    let mut builder = Builder::new(PathBuf::from(id.to_string()));
 
     if let Some(run_request::Memory::MaxMemory(max)) = request.memory {
         builder = builder.memory().limit_in_bytes(max).done();

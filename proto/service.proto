@@ -68,6 +68,7 @@ message StopResponse {
       PROCESS_NOT_FOUND_ERROR = 0;
       PROCESS_ALREADY_STOPPED_ERROR = 1;
       COULDNT_STOP_ERROR = 2;
+      INVALID_ID = 3;
     }
 
     string description = 1;
@@ -89,6 +90,7 @@ message StatusResponse {
   message StatusError {
     enum Error {
       PROCESS_NOT_FOUND_ERROR = 0;
+      INVALID_ID = 1;
     }
 
     string description = 1;
@@ -138,6 +140,7 @@ message LogResponse {
   message LogError {
     enum Error {
       PROCESS_NOT_FOUND_ERROR = 0;
+      INVALID_ID = 1;
     }
 
     string description = 1;

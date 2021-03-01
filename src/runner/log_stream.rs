@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// A struct representing the stream of stdout or stderr data of a process.
 /// This struct implements futures::stream::Stream as well as some common traits
@@ -23,7 +24,7 @@ pub struct LogStream {
     file: Arc<RwLock<File>>,
 
     /// UUID of the process
-    process_id: String,
+    process_id: Uuid,
 
     /// Internal state variable telling if reading can continue
     closed: bool,
@@ -35,7 +36,7 @@ pub struct LogStream {
 impl LogStream {
     /// Creates a stream of messages, ready to be polled for new data
     pub fn open(
-        process_id: String,
+        process_id: Uuid,
         map: ProcessMap,
         path: &Path,
         buffer_size: usize,
