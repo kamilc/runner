@@ -117,7 +117,7 @@ impl Runner {
                 let barrier = Arc::new(Barrier::new(2));
                 let subthread_barrier = Arc::clone(&barrier);
 
-                if let None = system.get_process(pid as i32) {
+                if let Some((_, Stopped(_))) = self.processes.read().unwrap().get(&id) {
                     return Err(TaskError {
                         description: "Process already stopped".to_string(),
                         variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
