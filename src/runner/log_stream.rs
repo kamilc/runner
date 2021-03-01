@@ -11,14 +11,24 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::RwLock;
 
+/// A struct representing the stream of stdout or stderr data of a process.
+/// This struct implements futures::stream::Stream
 pub struct LogStream {
+    /// A processes map providing information on whether a process is still running or not
     map: ProcessMap,
+
+    /// A log file
     file: Arc<RwLock<File>>,
+
+    /// UUID of the process
     process_id: String,
+
+    /// Internal state variable telling if reading can continue
     closed: bool,
 }
 
 impl LogStream {
+    /// Creates a stream of messages, ready to be polled for new data
     pub fn open(process_id: String, processes: ProcessMap, path: PathBuf) -> Result<Self> {
         let file = File::open(&path).context("Couldn't open log file")?;
 
@@ -34,6 +44,8 @@ impl LogStream {
 impl Stream for LogStream {
     type Item = Result<Vec<u8>, LogError>;
 
+    /// Returns the next value from the log stream. If the process has finished, then
+    /// reaching the end of file finishes this stream.
     fn poll_next(
         self: Pin<&mut Self>,
         _cx: &mut futures::task::Context,

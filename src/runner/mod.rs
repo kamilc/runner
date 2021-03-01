@@ -11,7 +11,7 @@ use cgroups::create_cgroups;
 use controlgroup;
 use log::warn;
 use log_stream::LogStream;
-use process_map::{insert_process, update_process, ProcessMap};
+use process_map::ProcessMap;
 use service::{
     log_request,
     log_response::{log_error, LogError},
@@ -31,6 +31,8 @@ use std::time::Duration;
 use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
 
+/// Processes runner struct. Includes processes states and allows to
+/// run them, stop, get their status and the stream of logs
 #[derive(Default)]
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
@@ -41,6 +43,8 @@ pub struct Runner {
 }
 
 impl Runner {
+    /// Executes given command. Allows to specify the command name, arguments and
+    /// resource constraints. Returns a UUID of the process or an error.
     pub fn run(&mut self, request: &RunRequest) -> Result<String, RunError> {
         self.validate_run(&request)?;
 
@@ -71,15 +75,17 @@ impl Runner {
                     })?;
 
                 let process_id = id.clone();
-                let processes = self.processes.clone();
                 let sys_pid = child.id();
 
-                insert_process(processes.clone(), &process_id, sys_pid);
+                let mut map = self.processes.write().unwrap();
+                (*map).insert(id.to_string(), (child.id(), None));
 
+                let processes = self.processes.clone();
                 thread::Builder::new()
                     .spawn(move || {
                         if let Ok(exit_status) = child.wait() {
-                            update_process(processes, &process_id, sys_pid, exit_status);
+                            let mut map = processes.write().unwrap();
+                            (*map).insert(process_id.to_string(), (sys_pid, Some(exit_status)));
                         } else {
                             warn!("Couldn't get the exit code for {}", process_id);
                         }
@@ -91,6 +97,7 @@ impl Runner {
             .context("Couldn't spawn the process as specified")?
     }
 
+    /// Stops a running process if it was started by this instance of the Runner
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Some(pid) = self.pid_for_process(&request.id) {
             let (send, recv) = channel();
@@ -131,6 +138,8 @@ impl Runner {
         }
     }
 
+    /// Fetches the status of the process if it was started by this instanmce of the Runner.
+    /// If the process has finished, returns an exit code or the signal that killed it
     pub fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         let map = self.processes.read().unwrap();
 
@@ -167,6 +176,8 @@ impl Runner {
         }
     }
 
+    /// Returns a stream of stdout or stderr logs for a process. The stream implements
+    /// futures::streams::Stream.
     pub fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
         let map = self.processes.read().unwrap();
 
@@ -197,6 +208,7 @@ impl Runner {
         }
     }
 
+    /// Returns the path to stdout file for a process
     fn stdout_path(&self, id: &str) -> PathBuf {
         let mut path = PathBuf::new();
 
@@ -206,6 +218,7 @@ impl Runner {
         path
     }
 
+    /// Returns the path to stderr file for a process
     fn stderr_path(&self, id: &str) -> PathBuf {
         let mut path = PathBuf::new();
 
@@ -215,6 +228,7 @@ impl Runner {
         path
     }
 
+    /// Validates the "run process" request
     fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
         if request.command.trim().is_empty() {
             return task_error!("Command name empty", run_error::Error::NameEmptyError);
@@ -241,6 +255,7 @@ impl Runner {
         Ok(())
     }
 
+    /// Returns the PID for a given UUID id of the process
     pub fn pid_for_process(&self, id: &String) -> Option<u32> {
         let processes = self.processes.read().unwrap();
 
