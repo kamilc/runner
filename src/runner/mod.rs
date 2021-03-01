@@ -17,7 +17,7 @@ use service::{
     log_response::{log_error, LogError},
     run_request::Disk,
     run_response::{run_error, RunError},
-    status_response::{status_error, status_result, Status, StatusError, StatusResult},
+    status_response::{status_error, status_result, StatusError, StatusResult},
     stop_response::{stop_error, StopError},
     InternalError, LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
 };
@@ -138,22 +138,26 @@ impl Runner {
             match maybe_status {
                 Some(status) => {
                     let result = match status.code() {
-                        Some(code) => status_result::Result::ExitCode(code),
+                        Some(code) => status_result::Finish::Result(status_result::ExitResult {
+                            exit: Some(status_result::exit_result::Exit::Code(code)),
+                            kill: None,
+                        }),
                         None => match status.signal() {
-                            Some(signal) => status_result::Result::Signal(signal),
+                            Some(signal) => {
+                                status_result::Finish::Result(status_result::ExitResult {
+                                    exit: None,
+                                    kill: Some(status_result::exit_result::Kill::Signal(signal)),
+                                })
+                            }
                             None => Err(anyhow!("Couldn't get exit code or the kill signal"))?,
                         },
                     };
 
                     Ok(StatusResult {
-                        status: Status::Stopped as i32,
-                        result: Some(result),
+                        finish: Some(result),
                     })
                 }
-                None => Ok(StatusResult {
-                    status: Status::Running as i32,
-                    result: None,
-                }),
+                None => Ok(StatusResult { finish: None }),
             }
         } else {
             task_error!(
@@ -318,7 +322,7 @@ mod tests {
 
         let response = runner.status(&status_request).unwrap();
 
-        assert!(response.status == service::status_response::Status::Running as i32);
+        assert!(response.finish.is_none());
     }
 
     #[test]

@@ -99,17 +99,21 @@ message StatusResponse {
     }
   }
 
-  enum Status {
-    RUNNING = 0;
-    STOPPED = 1;
-  }
-
   message StatusResult {
-    Status status = 1;
+    message ExitResult {
+      oneof exit {
+        int32 code = 1;
+      }
 
-    oneof result {
-      int32 exit_code = 2;
-      int32 signal = 3;
+      oneof kill {
+        int32 signal = 2;
+      }
+    }
+
+    // encode "running" as no <finish> here
+    // and "stopped" otherwise
+    oneof finish {
+      ExitResult result = 1;
     }
   }
 
