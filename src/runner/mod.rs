@@ -29,6 +29,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, SystemExt};
@@ -86,7 +87,7 @@ impl Runner {
                 let mut map = self.processes.write().unwrap();
                 (*map).insert(id.to_string(), (child.id(), Running));
 
-                let processes = self.processes.clone();
+                let processes = Arc::clone(&self.processes);
                 thread::Builder::new()
                     .spawn(move || {
                         if let Ok(exit_status) = child.wait() {
@@ -206,7 +207,7 @@ impl Runner {
 
                     Ok(LogStream::open(
                         request.id.clone(),
-                        self.processes.clone(),
+                        Arc::clone(&self.processes),
                         log_path.as_path(),
                         self.buffer_size.unwrap_or(256),
                     )?)
