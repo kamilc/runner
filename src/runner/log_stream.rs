@@ -1,4 +1,4 @@
-use crate::runner::process_map::ProcessMap;
+use crate::runner::process_map::{ProcessMap, ProcessStatus::Stopped};
 use crate::runner::service::log_response::LogError;
 use anyhow::{anyhow, Context, Result};
 use futures::stream::Stream;
@@ -68,7 +68,7 @@ impl Stream for LogStream {
 
         let this = Pin::<&mut LogStream>::into_inner(self);
 
-        if let Some((_, Some(_))) = this.map.read().unwrap().get(&this.process_id) {
+        if let Some((_, Stopped(_))) = this.map.read().unwrap().get(&this.process_id) {
             // exit code is present, process has ended, we're finishing here
             if this.closed {
                 return Poll::Ready(None);

@@ -11,7 +11,10 @@ use cgroups::create_cgroups;
 use controlgroup;
 use log::warn;
 use log_stream::LogStream;
-use process_map::ProcessMap;
+use process_map::{
+    ProcessMap,
+    ProcessStatus::{Running, Stopped},
+};
 use service::{
     log_request,
     log_response::{log_error, LogError},
@@ -81,14 +84,14 @@ impl Runner {
                 let sys_pid = child.id();
 
                 let mut map = self.processes.write().unwrap();
-                (*map).insert(id.to_string(), (child.id(), None));
+                (*map).insert(id.to_string(), (child.id(), Running));
 
                 let processes = self.processes.clone();
                 thread::Builder::new()
                     .spawn(move || {
                         if let Ok(exit_status) = child.wait() {
                             let mut map = processes.write().unwrap();
-                            (*map).insert(process_id.to_string(), (sys_pid, Some(exit_status)));
+                            (*map).insert(process_id.to_string(), (sys_pid, Stopped(exit_status)));
                         } else {
                             warn!("Couldn't get the exit code for {}", process_id);
                         }
@@ -146,9 +149,9 @@ impl Runner {
     pub fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         let map = self.processes.read().unwrap();
 
-        if let Some((_, maybe_status)) = map.get(&request.id) {
-            match maybe_status {
-                Some(status) => {
+        if let Some((_, process_status)) = map.get(&request.id) {
+            match process_status {
+                Stopped(status) => {
                     let result = match status.code() {
                         Some(code) => status_result::Finish::Result(status_result::ExitResult {
                             exit: Some(status_result::exit_result::Exit::Code(code)),
@@ -169,7 +172,7 @@ impl Runner {
                         finish: Some(result),
                     })
                 }
-                None => Ok(StatusResult { finish: None }),
+                Running => Ok(StatusResult { finish: None }),
             }
         } else {
             task_error!(
