@@ -11,6 +11,8 @@ use cgroups::create_cgroups;
 use controlgroup;
 use log::warn;
 use log_stream::LogStream;
+use nix::sys::signal;
+use nix::unistd::Pid;
 use process_map::{
     ProcessMap,
     ProcessStatus::{Running, Stopped},
@@ -31,7 +33,6 @@ use std::process::Command;
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 use std::time::Instant;
-use sysinfo::{ProcessExt, SystemExt};
 use uuid::Uuid;
 
 /// Processes runner struct. Includes processes states and allows to
@@ -113,7 +114,6 @@ impl Runner {
     pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if let Some(pid) = self.pid_for_process(&id) {
-                let mut system = sysinfo::System::new();
                 let barrier = Arc::new(Barrier::new(2));
                 let subthread_barrier = Arc::clone(&barrier);
 
@@ -125,17 +125,27 @@ impl Runner {
                     .into());
                 }
 
-                tokio::spawn(async move {
+                let processes = Arc::clone(&self.processes);
+
+                // using std::thread here as futures don't implement Send
+                // which makes passing the processes rwlock into it troublesome
+                //
+                // the processes map can't be tokio::syncRwLock since it needs
+                // to be used from within the LogStream poll_next which isn't
+                // a future
+
+                std::thread::spawn(move || {
                     let start = Instant::now();
 
                     loop {
-                        if let Some(process) = system.get_process(pid as i32) {
-                            process.kill(sysinfo::Signal::Term);
-
-                            // let's give the subprocess small time to die
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-
-                            system.refresh_processes();
+                        if let Some((_, Running)) = processes.read().unwrap().get(&id) {
+                            match signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM) {
+                                Ok(_) => {
+                                    // let's give the subprocess small time to die
+                                    std::thread::sleep(Duration::from_millis(100));
+                                }
+                                Err(_) => break,
+                            }
                         } else {
                             if start.elapsed().as_secs() > 5 {
                                 break;
@@ -147,10 +157,9 @@ impl Runner {
                 });
 
                 barrier.wait();
-                let system = sysinfo::System::new();
 
-                if let Some(process) = system.get_process(pid as i32) {
-                    if !process.kill(sysinfo::Signal::Kill) {
+                if let Some((_, Running)) = self.processes.read().unwrap().get(&id) {
+                    if signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGKILL).is_err() {
                         return Err(TaskError {
                             description: "Couldn't kill a process".to_string(),
                             variant: stop_error::Error::CouldntStopError as i32,
@@ -337,13 +346,13 @@ impl Runner {
 
 #[cfg(test)]
 mod tests {
+    extern crate sysinfo;
     extern crate tokio;
 
     use super::*;
     use futures::StreamExt;
     use service;
-    use sysinfo;
-    use uuid::Uuid;
+    use sysinfo::SystemExt;
 
     #[tokio::test]
     async fn proper_run_returns_correct_uuid() {
