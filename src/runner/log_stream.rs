@@ -12,7 +12,8 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 /// A struct representing the stream of stdout or stderr data of a process.
-/// This struct implements futures::stream::Stream
+/// This struct implements futures::stream::Stream as well as some common traits
+#[derive(Clone, Debug)]
 pub struct LogStream {
     /// A processes map providing information on whether a process is still running or not
     map: ProcessMap,

@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 /// Processes runner struct. Includes processes states and allows to
 /// run them, stop, get their status and the stream of logs
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
     processes: ProcessMap,

@@ -20,6 +20,7 @@ macro_rules! impl_from_anyhow {
 /// a type that's linked with the error for specific request.
 /// Provided here to keep error types handling away from the
 /// logic to keep it clear to think about
+#[derive(Clone, Debug)]
 pub struct TaskError {
     pub description: String,
     pub variant: i32,
@@ -29,6 +30,7 @@ pub struct TaskError {
 /// a general error as defined in teh service.
 /// Provided here to keep error types handling away from the
 /// logic to keep it clear to think about
+#[derive(Clone, Debug)]
 pub struct InternalError {
     pub description: String,
 }
