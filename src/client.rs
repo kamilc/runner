@@ -6,6 +6,7 @@ use cli::client::{Cli, Command};
 use structopt::StructOpt;
 use tonic::transport::Uri;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
+use uuid::Uuid;
 
 use crate::runner::service::{
     log_request, log_response, run_request, run_response, runner_client, runner_server,
@@ -62,7 +63,16 @@ async fn main() -> Result<()> {
                 run_response::Results::Error(err) => println!("Error: {}", err.description),
             }
         }
-        Command::Stop { id } => println!("todo"),
+        Command::Stop { id } => {
+            let request = tonic::Request::new(StopRequest { id: id.to_string() });
+
+            let response = client.stop(request).await?;
+
+            match response.into_inner().error {
+                Some(err) => println!("Error: {}", err.description),
+                None => println!("Stopped"),
+            }
+        }
         Command::Log { id, descriptor } => println!("todo"),
         Command::Status { id } => println!("todo"),
     };
