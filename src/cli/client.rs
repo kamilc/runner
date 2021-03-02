@@ -4,27 +4,27 @@ use uuid::Uuid;
 
 arg_enum! {
     #[derive(StructOpt, Debug)]
-    enum Descriptor {
+    pub enum Descriptor {
         Stdout,
         Stderr,
     }
 }
 
 #[derive(StructOpt, Debug)]
-enum Command {
+pub enum Command {
     /// Run a command
     Run {
         #[structopt(long)]
         /// Max memory share
-        memory: Option<u32>,
+        memory: Option<u64>,
 
         #[structopt(long)]
         /// Max cpu share
-        cpu: Option<u32>,
+        cpu: Option<u64>,
 
         #[structopt(long)]
         /// Max disk weight
-        disk: Option<u32>,
+        disk: Option<u64>,
 
         /// Command to run
         command: String,
@@ -56,24 +56,24 @@ enum Command {
 pub struct Cli {
     /// Path to the server's CA root certificate
     #[structopt(long = "server-ca", env = "SERVER_CA")]
-    server_ca: String,
+    pub server_ca: String,
 
     /// Path to the client certificate
     #[structopt(long = "cert", env = "CLIENT_CERT")]
-    cert: String,
+    pub cert: String,
 
     /// Path to the client key
     #[structopt(long = "key", env = "CLIENT_KEY")]
-    key: String,
+    pub key: String,
 
     /// gRPC address
     #[structopt(
         long = "address",
         env = "SERVER_ADDRESS",
-        default_value = "[::1]:50051"
+        default_value = "dns://[::1]:50051"
     )]
-    address: String,
+    pub address: String,
 
     #[structopt(subcommand)]
-    command: Command,
+    pub command: Command,
 }
