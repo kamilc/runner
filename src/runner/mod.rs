@@ -3,6 +3,8 @@ mod cgroups;
 #[macro_use]
 pub mod service;
 
+pub mod server;
+
 mod log_stream;
 mod process_map;
 
