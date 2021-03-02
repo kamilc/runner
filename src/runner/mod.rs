@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 /// Processes runner struct. Includes processes states and allows to
 /// run them, stop, get their status and the stream of logs
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
     processes: ProcessMap,
@@ -49,6 +49,18 @@ pub struct Runner {
 
     /// The size of the buffer for streaming logs
     buffer_size: Option<usize>,
+}
+
+// A more real implementation would make sure that the log_dir exists
+// Let's skip it for now as it's a proof-of-concept
+impl Default for Runner {
+    fn default() -> Self {
+        Runner {
+            processes: ProcessMap::default(),
+            log_dir: "tmp".to_string(),
+            buffer_size: Some(256),
+        }
+    }
 }
 
 impl Runner {
