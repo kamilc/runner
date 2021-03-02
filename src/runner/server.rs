@@ -1,6 +1,6 @@
 use crate::runner::service::{
-    run_response, runner_server, LogRequest, LogResponse, RunRequest, RunResponse, StatusRequest,
-    StatusResponse, StopRequest, StopResponse,
+    run_response, runner_server, status_response, LogRequest, LogResponse, RunRequest, RunResponse,
+    StatusRequest, StatusResponse, StopRequest, StopResponse,
 };
 use crate::runner::Runner;
 use futures::stream::Stream;
@@ -42,9 +42,18 @@ impl runner_server::Runner for RunnerServer {
 
     async fn status(
         &self,
-        _request: Request<StatusRequest>,
+        request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
-        unimplemented!();
+        let status_request = request.into_inner();
+
+        match self.runner.status(&status_request) {
+            Ok(result) => Ok(Response::new(StatusResponse {
+                results: Some(status_response::Results::Result(result)),
+            })),
+            Err(err) => Ok(Response::new(StatusResponse {
+                results: Some(status_response::Results::Error(err)),
+            })),
+        }
     }
 
     async fn log(
