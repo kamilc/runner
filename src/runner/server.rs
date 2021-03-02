@@ -31,8 +31,13 @@ impl runner_server::Runner for RunnerServer {
         }
     }
 
-    async fn stop(&self, _request: Request<StopRequest>) -> Result<Response<StopResponse>, Status> {
-        unimplemented!();
+    async fn stop(&self, request: Request<StopRequest>) -> Result<Response<StopResponse>, Status> {
+        let stop_request = request.into_inner();
+
+        match self.runner.stop(&stop_request) {
+            Ok(_) => Ok(Response::new(StopResponse { error: None })),
+            Err(err) => Ok(Response::new(StopResponse { error: Some(err) })),
+        }
     }
 
     async fn status(
