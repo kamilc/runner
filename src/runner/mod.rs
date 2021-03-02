@@ -182,18 +182,18 @@ impl Runner {
 
                 Ok(())
             } else {
-                return Err(TaskError {
+                Err(TaskError {
                     description: "Process not found".to_string(),
                     variant: stop_error::Error::ProcessNotFoundError as i32,
                 }
-                .into());
+                .into())
             }
         } else {
-            return Err(TaskError {
+            Err(TaskError {
                 description: "Invalid process id".to_string(),
                 variant: stop_error::Error::InvalidId as i32,
             }
-            .into());
+            .into())
         }
     }
 
@@ -238,18 +238,18 @@ impl Runner {
                     Running => Ok(StatusResult { finish: None }),
                 }
             } else {
-                return Err(TaskError {
+                Err(TaskError {
                     description: "Process not found".to_string(),
                     variant: status_error::Error::ProcessNotFoundError as i32,
                 }
-                .into());
+                .into())
             }
         } else {
-            return Err(TaskError {
+            Err(TaskError {
                 description: "Invalid process id".to_string(),
                 variant: status_error::Error::InvalidId as i32,
             }
-            .into());
+            .into())
         }
     }
 
@@ -275,23 +275,23 @@ impl Runner {
                         self.buffer_size.unwrap_or(256),
                     )?)
                 }
-                None => return Err(InternalError {
+                None => Err(InternalError {
                     description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
                 }.into())
             }
             } else {
-                return Err(TaskError {
+                Err(TaskError {
                     description: "Process not found".to_string(),
                     variant: log_error::Error::ProcessNotFoundError as i32,
                 }
-                .into());
+                .into())
             }
         } else {
-            return Err(TaskError {
+            Err(TaskError {
                 description: "Invalid process id".to_string(),
                 variant: log_error::Error::InvalidId as i32,
             }
-            .into());
+            .into())
         }
     }
 
