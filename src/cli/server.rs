@@ -18,7 +18,7 @@ pub struct Cli {
     #[structopt(
         long = "address",
         env = "SERVER_ADDRESS",
-        default_value = "dns://[::1]:50051"
+        default_value = "[::1]:50051"
     )]
     pub address: String,
 }

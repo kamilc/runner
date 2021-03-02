@@ -54,8 +54,13 @@ async fn main() -> Result<()> {
                 memory: memory.map(|v| run_request::Memory::MaxMemory(v)),
                 cpu: cpu.map(|v| run_request::Cpu::MaxCpu(v)),
             });
+
             let response = client.run(request).await?;
-            println!("RESPONSE={:?}", response);
+
+            match response.into_inner().results.unwrap() {
+                run_response::Results::Id(id) => println!("{}", id),
+                run_response::Results::Error(err) => println!("Error: {}", err.description),
+            }
         }
         Command::Stop { id } => println!("todo"),
         Command::Log { id, descriptor } => println!("todo"),
