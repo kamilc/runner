@@ -1,9 +1,10 @@
 use crate::runner::service::{
-    run_response, runner_server, status_response, LogRequest, LogResponse, RunRequest, RunResponse,
-    StatusRequest, StatusResponse, StopRequest, StopResponse,
+    log_response, run_response, runner_server, status_response, LogRequest, LogResponse,
+    RunRequest, RunResponse, StatusRequest, StatusResponse, StopRequest, StopResponse,
 };
 use crate::runner::Runner;
 use futures::stream::Stream;
+use futures::StreamExt;
 use std::pin::Pin;
 use tonic::{Request, Response, Status};
 
@@ -58,8 +59,36 @@ impl runner_server::Runner for RunnerServer {
 
     async fn log(
         &self,
-        _request: Request<LogRequest>,
+        request: Request<LogRequest>,
     ) -> Result<Response<LogResponseStream>, Status> {
-        unimplemented!();
+        let log_request = request.into_inner();
+
+        match self.runner.log(&log_request) {
+            Ok(result) => {
+                let ret = result.map(|item| match item {
+                    Ok(data) => Ok(LogResponse {
+                        results: Some(log_response::Results::Data(data)),
+                    }),
+                    Err(err) => Ok(LogResponse {
+                        results: Some(log_response::Results::Error(err)),
+                    }),
+                });
+                Ok(Response::new(Box::pin(ret)))
+            }
+            Err(err) => {
+                let ret = futures::stream::unfold(Some(err), |state| async move {
+                    if let Some(err) = state {
+                        let resp = Ok(LogResponse {
+                            results: Some(log_response::Results::Error(err)),
+                        });
+                        Some((resp, None))
+                    } else {
+                        None
+                    }
+                });
+
+                Ok(Response::new(Box::pin(ret)))
+            }
+        }
     }
 }

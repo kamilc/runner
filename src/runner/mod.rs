@@ -366,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn proper_run_returns_correct_uuid() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -381,7 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn incorrect_run_returns_error() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -405,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_after_proper_long_run_works() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -427,7 +427,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn basic_stop_works() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -465,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn gathering_logs_via_log_request_and_responce_stream_works_asynchronously() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
