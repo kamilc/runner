@@ -1,3 +1,15 @@
 /target
 tmp
-example
+example/ca.p8
+example/client.p8
+example/server.p8
+example/ca.pem
+example/client.full.pem
+example/client.in.pem
+example/client.pem
+example/server.full.pem
+example/server.in.pem
+example/server.pem
+example/ca.srl
+example/v3.ext
+example/verify

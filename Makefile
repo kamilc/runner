@@ -10,20 +10,17 @@ build:
 test: certificates
 	cargo test
 
-example:
-	mkdir -p example
-
-example/v3.ext: example
+example/v3.ext:
 	echo "$$V3EXT" > example/v3.ext
 
-example/ca.p8: example
+example/ca.p8:
 	openssl genpkey \
     -algorithm RSA \
         -pkeyopt rsa_keygen_bits:2048 \
         -pkeyopt rsa_keygen_pubexp:65537 | \
   openssl pkcs8 -topk8 -nocrypt > example/ca.p8
 
-example/ca.other.p8: example
+example/ca.other.p8:
 	openssl genpkey \
     -algorithm RSA \
         -pkeyopt rsa_keygen_bits:2048 \
@@ -36,14 +33,14 @@ example/ca.pem: example/ca.p8
 example/ca.other.pem: example/ca.other.p8
 	openssl req -x509 -new -nodes -key example/ca.other.p8 -sha512 -days 1825 -subj "/O=goteleport/CN=goteleport" -out example/ca.other.pem
 
-example/server.p8: example
+example/server.p8:
 	openssl genpkey \
     -algorithm RSA \
         -pkeyopt rsa_keygen_bits:2048 \
         -pkeyopt rsa_keygen_pubexp:65537 | \
   openssl pkcs8 -topk8 -nocrypt > example/server.p8
 
-example/client.p8: example
+example/client.p8:
 	openssl genpkey \
     -algorithm RSA \
         -pkeyopt rsa_keygen_bits:2048 \
@@ -69,7 +66,7 @@ example/client.full.pem: example/client.pem example/ca.pem
 	cat example/client.pem example/ca.pem > example/client.full.pem
 
 clean-certificates:
-	rm -fr example
+	rm -f example/*.{p8,slr,pem,ext} example/verify
 
 example/verify: example/server.full.pem example/client.full.pem
 	openssl verify -verbose -CAfile example/ca.pem example/client.full.pem &&\
