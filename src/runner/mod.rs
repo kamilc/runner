@@ -1,7 +1,7 @@
 mod cgroups;
 
 #[macro_use]
-mod service;
+pub mod service;
 
 mod log_stream;
 mod process_map;
