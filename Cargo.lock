@@ -884,6 +884,7 @@ dependencies = [
  "sysinfo",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tonic",
  "tonic-build",
  "uuid",
