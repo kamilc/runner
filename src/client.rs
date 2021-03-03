@@ -50,9 +50,9 @@ async fn main() -> Result<()> {
             let request = tonic::Request::new(RunRequest {
                 command,
                 arguments: args,
-                disk: disk.map(|v| run_request::Disk::MaxDisk(v)),
-                memory: memory.map(|v| run_request::Memory::MaxMemory(v)),
-                cpu: cpu.map(|v| run_request::Cpu::MaxCpu(v)),
+                disk: disk.map(run_request::Disk::MaxDisk),
+                memory: memory.map(run_request::Memory::MaxMemory),
+                cpu: cpu.map(run_request::Cpu::MaxCpu),
             });
 
             let response = client.run(request).await?;
@@ -84,15 +84,13 @@ async fn main() -> Result<()> {
                             exit_result.exit
                         {
                             println!("Exited with code: {}", code);
+                        } else if let Some(
+                            status_response::status_result::exit_result::Kill::Signal(signal),
+                        ) = exit_result.kill
+                        {
+                            println!("Killed with signal: {}", signal);
                         } else {
-                            if let Some(
-                                status_response::status_result::exit_result::Kill::Signal(signal),
-                            ) = exit_result.kill
-                            {
-                                println!("Killed with signal: {}", signal);
-                            } else {
-                                println!("Stopped but no exit code or signal is known");
-                            }
+                            println!("Stopped but no exit code or signal is known");
                         }
                     }
                     None => {
