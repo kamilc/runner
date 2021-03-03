@@ -27,7 +27,7 @@ pub struct TaskError {
 }
 
 /// Represents an internal specific error. This is later converted into
-/// a general error as defined in teh service.
+/// a general error as defined in the service.
 /// Provided here to keep error types handling away from the
 /// logic to keep it clear to think about
 #[derive(Debug)]
