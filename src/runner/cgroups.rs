@@ -22,7 +22,7 @@ pub fn create_cgroups(request: &RunRequest, id: &Uuid) -> Result<UnifiedRepr> {
         builder = builder.blkio().weight(u16::try_from(max)?).done();
     }
 
-    Ok(builder
+    builder
         .build()
-        .context("Couldn't create a Linux control group for the new process")?)
+        .context("Couldn't create a Linux control group for the new process")
 }

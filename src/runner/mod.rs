@@ -8,9 +8,9 @@ mod process_map;
 
 use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
-use controlgroup;
 use log::warn;
 use log_stream::LogStream;
+use nix::errno::Errno;
 use nix::sys::signal;
 use nix::unistd::Pid;
 use process_map::{
@@ -30,7 +30,7 @@ use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Arc, Barrier};
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use uuid::Uuid;
@@ -56,7 +56,7 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub fn run(&mut self, request: &RunRequest) -> Result<Uuid, RunError> {
+    pub async fn run(&mut self, request: &RunRequest) -> Result<Uuid, RunError> {
         self.validate_run(&request)?;
 
         let id = Uuid::new_v4();
@@ -85,7 +85,7 @@ impl Runner {
                         ),
                     })?;
 
-                let process_id = id.clone();
+                let process_id = id;
                 let sys_pid = child.id();
 
                 let mut map = self.processes.write().unwrap();
@@ -111,12 +111,9 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
+    pub async fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if let Some(pid) = self.pid_for_process(&id) {
-                let barrier = Arc::new(Barrier::new(2));
-                let subthread_barrier = Arc::clone(&barrier);
-
                 if let Some((_, Stopped(_))) = self.processes.read().unwrap().get(&id) {
                     return Err(TaskError {
                         description: "Process already stopped".to_string(),
@@ -125,46 +122,47 @@ impl Runner {
                     .into());
                 }
 
-                let processes = Arc::clone(&self.processes);
+                let start = Instant::now();
 
-                // using std::thread here as futures don't implement Send
-                // which makes passing the processes rwlock into it troublesome
-                //
-                // the processes map can't be tokio::syncRwLock since it needs
-                // to be used from within the LogStream poll_next which isn't
-                // a future
-
-                std::thread::spawn(move || {
-                    let start = Instant::now();
-
-                    loop {
-                        if let Some((_, Running)) = processes.read().unwrap().get(&id) {
-                            match signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM) {
-                                Ok(_) => {
-                                    // let's give the subprocess small time to die
-                                    std::thread::sleep(Duration::from_millis(100));
-                                }
-                                Err(_) => break,
-                            }
-                        } else {
-                            if start.elapsed().as_secs() > 5 {
-                                break;
-                            }
-                        }
-                    }
-
-                    subthread_barrier.wait();
-                });
-
-                barrier.wait();
-
-                if let Some((_, Running)) = self.processes.read().unwrap().get(&id) {
+                let sigkill = || -> Result<(), StopError> {
                     if signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGKILL).is_err() {
                         return Err(TaskError {
                             description: "Couldn't kill a process".to_string(),
                             variant: stop_error::Error::CouldntStopError as i32,
                         }
                         .into());
+                    }
+
+                    Ok(())
+                };
+
+                while let Some((_, Running)) = self.processes.read().unwrap().get(&id) {
+                    if start.elapsed().as_secs() > 5 {
+                        sigkill()?;
+                        break;
+                    } else {
+                        match signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM) {
+                            Ok(_) => {
+                                // let's give it a bit and re-check if the process
+                                // is still there in the next run of this loop
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                            }
+                            Err(err) => {
+                                if let nix::Error::Sys(errno) = err {
+                                    match errno {
+                                        Errno::EACCES | Errno::ECHILD | Errno::EPERM => {
+                                            return Err(anyhow!(errno.desc()).into());
+                                        }
+                                        Errno::ESRCH => break,
+                                        _ => {
+                                            sigkill()?;
+                                            break;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
 
@@ -187,7 +185,7 @@ impl Runner {
 
     /// Fetches the status of the process if it was started by this instanmce of the Runner.
     /// If the process has finished, returns an exit code or the signal that killed it
-    pub fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
+    pub async fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             let map = self.processes.read().unwrap();
 
@@ -210,7 +208,12 @@ impl Runner {
                                         )),
                                     })
                                 }
-                                None => Err(anyhow!("Couldn't get exit code or the kill signal"))?,
+                                None => {
+                                    return Err(anyhow!(
+                                        "Couldn't get exit code or the kill signal"
+                                    )
+                                    .into())
+                                }
                             },
                         };
 
@@ -238,10 +241,10 @@ impl Runner {
 
     /// Returns a stream of stdout or stderr logs for a process. The stream implements
     /// futures::streams::Stream.
-    pub fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
+    pub async fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
         let map = self.processes.read().unwrap();
         if let Ok(id) = Uuid::parse_str(&request.id) {
-            if let Some(_) = map.get(&id) {
+            if map.get(&id).is_some() {
                 let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
 
                 match maybe_descriptor {
@@ -333,7 +336,7 @@ impl Runner {
     }
 
     /// Returns the PID for a given UUID id of the process
-    pub fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
+    fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
         let processes = self.processes.read().unwrap();
 
         if let Some((pid, _)) = (*processes).get(id) {
@@ -366,7 +369,7 @@ mod tests {
             ..Default::default()
         };
 
-        runner.run(&request).unwrap();
+        runner.run(&request).await.unwrap();
     }
 
     #[tokio::test]
@@ -382,7 +385,7 @@ mod tests {
             ..Default::default()
         };
 
-        let res = runner.run(&request);
+        let res = runner.run(&request).await;
 
         assert!(res.is_err());
         assert!(
@@ -406,11 +409,11 @@ mod tests {
             ..Default::default()
         };
 
-        let id = runner.run(&run_request).unwrap();
+        let id = runner.run(&run_request).await.unwrap();
 
         let status_request = StatusRequest { id: id.to_string() };
 
-        let response = runner.status(&status_request).unwrap();
+        let response = runner.status(&status_request).await.unwrap();
 
         assert!(response.finish.is_none());
     }
@@ -432,14 +435,14 @@ mod tests {
             ..Default::default()
         };
 
-        let id = runner.run(&run_request).unwrap();
+        let id = runner.run(&run_request).await.unwrap();
         let pid = runner.pid_for_process(&id).unwrap();
 
         let mut system = sysinfo::System::new();
         assert!(system.get_process(pid as i32).is_some());
 
         let stop_request = StopRequest { id: id.to_string() };
-        let resp = runner.stop(&stop_request);
+        let resp = runner.stop(&stop_request).await;
 
         resp.unwrap();
 
@@ -470,7 +473,7 @@ mod tests {
             ..Default::default()
         };
 
-        let id = runner.run(&run_request).unwrap();
+        let id = runner.run(&run_request).await.unwrap();
 
         // there's no need to wait for logs here since the
         // following log request is an async stream of values anyway
@@ -483,7 +486,7 @@ mod tests {
             descriptor: log_request::Descriptor::Stdout as i32,
         };
 
-        let mut stream = runner.log(&log_request).unwrap();
+        let mut stream = runner.log(&log_request).await.unwrap();
         let first_value = stream.next().await;
 
         assert!(first_value.unwrap().unwrap() == "1\n2\n3\n4\n".as_bytes());
