@@ -322,15 +322,8 @@ impl Runner {
             }
         }
 
-        for arg in &request.arguments {
-            if arg.trim().is_empty() {
-                return Err(TaskError {
-                    description: "One of arguments found empty".to_string(),
-                    variant: run_error::Error::ArgEmptyError as i32,
-                }
-                .into());
-            }
-        }
+        // Not validating arguments here since they really *can* be
+        // anything. It's possible e.g. for some of them to be empty.
 
         Ok(())
     }
