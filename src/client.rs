@@ -73,8 +73,37 @@ async fn main() -> Result<()> {
                 None => println!("Stopped"),
             }
         }
+        Command::Status { id } => {
+            let request = tonic::Request::new(StatusRequest { id: id.to_string() });
+
+            let response = client.status(request).await?;
+
+            match response.into_inner().results.unwrap() {
+                status_response::Results::Result(result) => match result.finish {
+                    Some(status_response::status_result::Finish::Result(exit_result)) => {
+                        if let Some(status_response::status_result::exit_result::Exit::Code(code)) =
+                            exit_result.exit
+                        {
+                            println!("Exited with code: {}", code);
+                        } else {
+                            if let Some(
+                                status_response::status_result::exit_result::Kill::Signal(signal),
+                            ) = exit_result.kill
+                            {
+                                println!("Killed with signal: {}", signal);
+                            } else {
+                                println!("Stopped but no exit code or signal is known");
+                            }
+                        }
+                    }
+                    None => {
+                        println!("Running");
+                    }
+                },
+                status_response::Results::Error(err) => println!("Error: {}", err.description),
+            }
+        }
         Command::Log { id, descriptor } => println!("todo"),
-        Command::Status { id } => println!("todo"),
     };
 
     Ok(())
