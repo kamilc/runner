@@ -2,16 +2,15 @@ mod cli;
 mod runner;
 
 use anyhow::{Context, Result};
-use cli::client::{Cli, Command};
+use cli::client::{Cli, Command, Descriptor};
+use std::io::Write;
 use structopt::StructOpt;
 use tonic::transport::Uri;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
-use uuid::Uuid;
 
 use crate::runner::service::{
-    log_request, log_response, run_request, run_response, runner_client, runner_server,
-    status_response, LogRequest, LogResponse, RunRequest, RunResponse, StatusRequest,
-    StatusResponse, StopRequest, StopResponse,
+    log_request, log_response, run_request, run_response, runner_client, status_response,
+    LogRequest, RunRequest, StatusRequest, StopRequest,
 };
 
 #[tokio::main]
@@ -103,7 +102,30 @@ async fn main() -> Result<()> {
                 status_response::Results::Error(err) => println!("Error: {}", err.description),
             }
         }
-        Command::Log { id, descriptor } => println!("todo"),
+        Command::Log { id, descriptor } => {
+            let descriptor = match descriptor {
+                Descriptor::Stdout => log_request::Descriptor::Stdout as i32,
+                Descriptor::Stderr => log_request::Descriptor::Stderr as i32,
+            };
+            let request = tonic::Request::new(LogRequest {
+                id: id.to_string(),
+                descriptor,
+            });
+
+            let response = client.log(request).await?;
+            let mut inbound = response.into_inner();
+            let mut out = std::io::stdout();
+
+            while let Some(item) = inbound.message().await? {
+                match item.results.unwrap() {
+                    log_response::Results::Data(data) => {
+                        out.write_all(&data)
+                            .context("Unable to write data into the stdout")?;
+                    }
+                    log_response::Results::Error(err) => println!("Error: {}", err.description),
+                }
+            }
+        }
     };
 
     Ok(())
