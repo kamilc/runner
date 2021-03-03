@@ -4,6 +4,28 @@ version = "0.1.0"
 authors = ["Kamil Ciemniewski <kamil@ciemniew.ski>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+tonic = { version = "0.4.0", features = ["tls"] }
+prost = "0.7.0"
+anyhow = "1.0"
+thiserror = "1.0"
+controlgroup = "0.3.0"
+uuid = { version = "0.8", features = ["v4"] }
+log = "0.4"
+futures = "0.3"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
+nix = "0.20.0"
+
+[dev-dependencies]
+sysinfo = "0.3.6"
+
+[build-dependencies]
+tonic-build = "0.4.0"
+
+[[bin]]
+    name = "server"
+    path = "src/server.rs"
+
+[[bin]]
+    name = "client"
+    path = "src/client.rs"
