@@ -22,7 +22,7 @@ impl runner_server::Runner for RunnerServer {
     async fn run(&self, request: Request<RunRequest>) -> Result<Response<RunResponse>, Status> {
         let run_request = request.into_inner();
 
-        match self.runner.run(&run_request) {
+        match self.runner.run(&run_request).await {
             Ok(id) => Ok(Response::new(RunResponse {
                 results: Some(run_response::Results::Id(id.to_string())),
             })),
@@ -35,7 +35,7 @@ impl runner_server::Runner for RunnerServer {
     async fn stop(&self, request: Request<StopRequest>) -> Result<Response<StopResponse>, Status> {
         let stop_request = request.into_inner();
 
-        match self.runner.stop(&stop_request) {
+        match self.runner.stop(&stop_request).await {
             Ok(_) => Ok(Response::new(StopResponse { error: None })),
             Err(err) => Ok(Response::new(StopResponse { error: Some(err) })),
         }
@@ -47,7 +47,7 @@ impl runner_server::Runner for RunnerServer {
     ) -> Result<Response<StatusResponse>, Status> {
         let status_request = request.into_inner();
 
-        match self.runner.status(&status_request) {
+        match self.runner.status(&status_request).await {
             Ok(result) => Ok(Response::new(StatusResponse {
                 results: Some(status_response::Results::Result(result)),
             })),
@@ -63,7 +63,7 @@ impl runner_server::Runner for RunnerServer {
     ) -> Result<Response<LogResponseStream>, Status> {
         let log_request = request.into_inner();
 
-        match self.runner.log(&log_request) {
+        match self.runner.log(&log_request).await {
             Ok(result) => {
                 let ret = result.map(|item| match item {
                     Ok(data) => Ok(LogResponse {

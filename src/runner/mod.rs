@@ -70,7 +70,7 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub async fn run(&mut self, request: &RunRequest) -> Result<Uuid, RunError> {
+    pub async fn run(&self, request: &RunRequest) -> Result<Uuid, RunError> {
         self.validate_run(&request)?;
 
         let id = Uuid::new_v4();
@@ -125,7 +125,7 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub async fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
+    pub async fn stop(&self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if let Some(pid) = self.pid_for_process(&id) {
                 if let Some((_, Stopped(_))) = self.processes.read().unwrap().get(&id) {
@@ -159,7 +159,7 @@ impl Runner {
                             Ok(_) => {
                                 // let's give it a bit and re-check if the process
                                 // is still there in the next run of this loop
-                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                //    tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                             Err(err) => {
                                 if let nix::Error::Sys(errno) = err {
@@ -199,7 +199,7 @@ impl Runner {
 
     /// Fetches the status of the process if it was started by this instanmce of the Runner.
     /// If the process has finished, returns an exit code or the signal that killed it
-    pub async fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
+    pub async fn status(&self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             let map = self.processes.read().unwrap();
 
@@ -255,7 +255,7 @@ impl Runner {
 
     /// Returns a stream of stdout or stderr logs for a process. The stream implements
     /// futures::streams::Stream.
-    pub async fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
+    pub async fn log(&self, request: &LogRequest) -> Result<LogStream, LogError> {
         let map = self.processes.read().unwrap();
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if map.get(&id).is_some() {
