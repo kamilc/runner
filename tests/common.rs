@@ -24,7 +24,7 @@ pub fn correct_client() -> Result<Command> {
 
     client
         .arg("--address")
-        .arg("[::1]:50052")
+        .arg("dns://[::1]:50052")
         .arg("--cert")
         .arg("example/client.pem")
         .arg("--server-ca")
