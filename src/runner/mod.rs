@@ -33,6 +33,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -158,7 +159,11 @@ impl Runner {
                             Ok(_) => {
                                 // let's give it a bit and re-check if the process
                                 // is still there in the next run of this loop
-                                //    tokio::time::sleep(Duration::from_millis(100)).await;
+                                //
+                                // todo: uncomment this one once the process map is Send after
+                                // switching over to its tokio version
+                                //
+                                //tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                             Err(err) => {
                                 if let nix::Error::Sys(errno) = err {
