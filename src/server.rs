@@ -6,7 +6,6 @@ use anyhow::{Context, Result};
 use cli::server::Cli;
 use runner::server::RunnerServer;
 use structopt::StructOpt;
-use tonic::transport::Uri;
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 
 #[tokio::main]
