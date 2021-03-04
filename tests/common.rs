@@ -34,3 +34,19 @@ pub fn correct_client() -> Result<Command> {
 
     Ok(client)
 }
+
+pub fn incorrect_certificate_client() -> Result<Command> {
+    let mut client = Command::cargo_bin("client")?;
+
+    client
+        .arg("--address")
+        .arg("dns://[::1]:50052")
+        .arg("--cert")
+        .arg("example/client.pem")
+        .arg("--server-ca")
+        .arg("example/ca.other.pem")
+        .arg("--key")
+        .arg("example/client.p8");
+
+    Ok(client)
+}
