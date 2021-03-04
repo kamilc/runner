@@ -1,6 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use assert_cmd::prelude::*;
-use predicates::prelude::*;
 use std::process::Command;
 
 pub fn correct_server() -> Result<Command> {

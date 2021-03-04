@@ -3,12 +3,11 @@ extern crate serial_test;
 
 mod common;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use assert_cmd::prelude::*;
 use common::{correct_client, correct_server, incorrect_certificate_client};
 use predicates::prelude::*;
 use std::panic;
-use std::process::Command;
 
 #[test]
 #[serial]
@@ -29,7 +28,7 @@ fn run_returns_a_uuid_when_correct() -> Result<()> {
         );
     });
 
-    server_child.kill();
+    server_child.kill().unwrap();
 
     match result {
         Ok(_) => Ok(()),
@@ -53,7 +52,7 @@ fn run_fails_when_process_doesnt_exist() -> Result<()> {
             .stderr(predicate::str::contains("Error"));
     });
 
-    server_child.kill();
+    server_child.kill().unwrap();
 
     match result {
         Ok(_) => Ok(()),
@@ -81,7 +80,7 @@ fn status_returns_running_when_running() -> Result<()> {
             .stdout(predicate::str::contains("Running"));
     });
 
-    server_child.kill();
+    server_child.kill().unwrap();
 
     match result {
         Ok(_) => Ok(()),
@@ -107,7 +106,7 @@ fn log_streams_the_logs() -> Result<()> {
         cmd.assert().success().stdout(predicate::str::contains("3"));
     });
 
-    server_child.kill();
+    server_child.kill().unwrap();
 
     match result {
         Ok(_) => Ok(()),
@@ -131,7 +130,7 @@ fn pointing_at_invalid_certifiate_makes_client_fail() -> Result<()> {
             .stderr(predicate::str::contains("invalid certificate"));
     });
 
-    server_child.kill();
+    server_child.kill().unwrap();
 
     match result {
         Ok(_) => Ok(()),
