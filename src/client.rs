@@ -149,7 +149,6 @@ async fn run() -> Result<()> {
                             .context("Unable to write data into the stdout")?;
                     }
                     log_response::Results::Error(err) => {
-                        //println!("Error: {}", err.description)
                         return Err(anyhow!("Error: {}", err.description));
                     }
                 }
