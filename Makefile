@@ -59,18 +59,12 @@ example/server.pem: example/v3.ext example/server.in.pem example/ca.pem example/
 example/client.pem: example/v3.ext example/client.in.pem example/ca.pem example/ca.p8 example/ca.pem
 	openssl x509 -req -extfile example/v3.ext -sha512 -days 1825 -in example/client.in.pem -CA example/ca.pem -CAkey example/ca.p8 -CAcreateserial -out example/client.pem
 
-example/server.full.pem: example/server.pem example/ca.pem
-	cat example/server.pem example/ca.pem > example/server.full.pem
-
-example/client.full.pem: example/client.pem example/ca.pem
-	cat example/client.pem example/ca.pem > example/client.full.pem
-
 clean-certificates:
 	rm -f example/*.{p8,slr,pem,ext} example/verify
 
-example/verify: example/server.full.pem example/client.full.pem
-	openssl verify -verbose -CAfile example/ca.pem example/client.full.pem &&\
-	openssl verify -verbose -CAfile example/ca.pem example/server.full.pem &&\
+example/verify: example/server.pem example/client.pem example/ca.other.pem
+	openssl verify -verbose -CAfile example/ca.pem example/client.pem &&\
+	openssl verify -verbose -CAfile example/ca.pem example/server.pem &&\
 	echo "OK" > example/verify
 
 certificates: example/verify
