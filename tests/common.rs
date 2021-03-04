@@ -7,6 +7,8 @@ pub fn correct_server() -> Result<Command> {
     let mut server = Command::cargo_bin("server")?;
 
     server
+        .arg("--address")
+        .arg("[::1]:50052")
         .arg("--cert")
         .arg("example/server.pem")
         .arg("--client-ca")
@@ -21,6 +23,8 @@ pub fn correct_client() -> Result<Command> {
     let mut client = Command::cargo_bin("client")?;
 
     client
+        .arg("--address")
+        .arg("[::1]:50052")
         .arg("--cert")
         .arg("example/client.pem")
         .arg("--server-ca")
