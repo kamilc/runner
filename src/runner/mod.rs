@@ -497,4 +497,37 @@ mod tests {
 
         assert!(first_value.unwrap().unwrap() == "1\n2\n3\n4\n".as_bytes());
     }
+
+    #[tokio::test]
+    async fn closed_processes_have_streams_with_an_end() {
+        let runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        // let's use /usr/bin/env here not to assume where echo resides
+        // env is most often under /usr/bin
+        let run_request = RunRequest {
+            command: "/usr/bin/env".to_string(),
+            arguments: vec![
+                "bash".to_string(),
+                "-c".to_string(),
+                "echo test".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let id = runner.run(&run_request).await.unwrap();
+
+        let log_request = LogRequest {
+            id: id.to_string(),
+            descriptor: log_request::Descriptor::Stdout as i32,
+        };
+
+        let mut stream = runner.log(&log_request).await.unwrap();
+        let first_value = stream.next().await;
+
+        assert!(first_value.unwrap().unwrap() == "test\n".as_bytes());
+        assert!(stream.next().await.is_none());
+    }
 }
