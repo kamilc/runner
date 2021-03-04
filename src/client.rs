@@ -1,7 +1,7 @@
 mod cli;
 mod runner;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use cli::client::{Cli, Command, Descriptor};
 use std::io::Write;
 use structopt::StructOpt;
@@ -13,8 +13,19 @@ use crate::runner::service::{
     LogRequest, RunRequest, StatusRequest, StopRequest,
 };
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async { run().await })
+        .map_err(|err| {
+            eprintln!("{}", err.to_string());
+            std::process::exit(1);
+        })
+}
+
+async fn run() -> Result<()> {
     let args = Cli::from_args();
 
     let cert = tokio::fs::read(args.cert).await?;
@@ -58,8 +69,14 @@ async fn main() -> Result<()> {
             let response = client.run(request).await?;
 
             match response.into_inner().results.unwrap() {
-                run_response::Results::Id(id) => println!("{}", id),
-                run_response::Results::Error(err) => println!("Error: {}", err.description),
+                run_response::Results::Id(id) => {
+                    println!("{}", id);
+                    Ok(())
+                }
+                run_response::Results::Error(err) => {
+                    Err(anyhow!("Error: {}", err.description))
+                    //eprintln!("Error: {}", err.description)
+                }
             }
         }
         Command::Stop { id } => {
@@ -68,8 +85,14 @@ async fn main() -> Result<()> {
             let response = client.stop(request).await?;
 
             match response.into_inner().error {
-                Some(err) => println!("Error: {}", err.description),
-                None => println!("Stopped"),
+                Some(err) => {
+                    //println!("Error: {}", err.description)
+                    Err(anyhow!("Error: {}", err.description))
+                }
+                None => {
+                    println!("Stopped");
+                    Ok(())
+                }
             }
         }
         Command::Status { id } => {
@@ -92,12 +115,17 @@ async fn main() -> Result<()> {
                         } else {
                             println!("Stopped but no exit code or signal is known");
                         }
+                        Ok(())
                     }
                     None => {
                         println!("Running");
+                        Ok(())
                     }
                 },
-                status_response::Results::Error(err) => println!("Error: {}", err.description),
+                status_response::Results::Error(err) => {
+                    //println!("Error: {}", err.description);
+                    Err(anyhow!("Error: {}", err.description))
+                }
             }
         }
         Command::Log { id, descriptor } => {
@@ -120,11 +148,14 @@ async fn main() -> Result<()> {
                         out.write_all(&data)
                             .context("Unable to write data into the stdout")?;
                     }
-                    log_response::Results::Error(err) => println!("Error: {}", err.description),
+                    log_response::Results::Error(err) => {
+                        //println!("Error: {}", err.description)
+                        return Err(anyhow!("Error: {}", err.description));
+                    }
                 }
             }
-        }
-    };
 
-    Ok(())
+            Ok(())
+        }
+    }
 }
