@@ -3,11 +3,10 @@ use crate::runner::service::{
     RunRequest, RunResponse, StatusRequest, StatusResponse, StopRequest, StopResponse,
 };
 use crate::runner::Runner;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::stream::Stream;
 use futures::StreamExt;
 use prost::Message;
-use rustls::internal::pemfile;
 use std::pin::Pin;
 use tonic::{Request, Response, Status};
 use x509_parser::parse_x509_certificate;
@@ -40,29 +39,29 @@ impl RunnerServer {
                                     // it's a proof-of-concept let's just hardcode the expected value:
 
                                     if common_name == "client" {
-                                        return Ok(());
+                                        Ok(())
                                     } else {
-                                        return Err(Status::permission_denied("Unauthorized!"));
+                                        Err(Status::permission_denied("Unauthorized!"))
                                     }
                                 }
-                                Err(_) => return Err(Status::permission_denied("Unauthorized!")),
+                                Err(_) => Err(Status::permission_denied("Unauthorized!")),
                             }
                         } else {
-                            return Err(Status::permission_denied("Unauthorized!"));
+                            Err(Status::permission_denied("Unauthorized!"))
                         }
                     } else {
-                        // this in theory shoulnd't happen but let's
+                        // this in theory shouldn't happen but let's
                         // return unauthorized here:
-                        return Err(Status::permission_denied(
+                        Err(Status::permission_denied(
                             "Unauthorized - couldn't parse certificate",
-                        ));
+                        ))
                     }
                 } else {
-                    // this in theory shoulnd't happen but let's
+                    // this in theory shouldn't happen but let's
                     // return unauthorized here:
-                    return Err(Status::permission_denied(
+                    Err(Status::permission_denied(
                         "Unauthorized - no certificates found",
-                    ));
+                    ))
                 }
             })
     }

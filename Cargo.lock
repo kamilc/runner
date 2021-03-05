@@ -1007,7 +1007,6 @@ dependencies = [
  "nix",
  "predicates",
  "prost",
- "regex",
  "rustls",
  "serial_test",
  "structopt",
