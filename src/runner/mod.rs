@@ -33,7 +33,6 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
 use std::time::Instant;
 use uuid::Uuid;
 

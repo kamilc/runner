@@ -1,12 +1,16 @@
+mod cipher;
 mod cli;
 mod runner;
+mod tls;
 
 use anyhow::{anyhow, Context, Result};
+use cipher::Cipher;
 use cli::client::{Cli, Command, Descriptor};
 use std::io::Write;
 use structopt::StructOpt;
+use tls::client_config;
 use tonic::transport::Uri;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
+use tonic::transport::{Channel, ClientTlsConfig};
 
 use crate::runner::service::{
     log_request, log_response, run_request, run_response, runner_client, status_response,
@@ -28,25 +32,24 @@ fn main() -> Result<()> {
 async fn run() -> Result<()> {
     let args = Cli::from_args();
 
-    let cert = tokio::fs::read(args.cert).await?;
-    let key = tokio::fs::read(args.key).await?;
-
-    let client_identity = Identity::from_pem(cert, key);
-
-    let server_ca_cert = tokio::fs::read(args.server_ca).await?;
-    let server_ca_cert = Certificate::from_pem(server_ca_cert);
+    let tls_config = client_config(args.cert, args.key, args.server_ca, Cipher::ChaCha20)
+        .await
+        .context("Couldn't configure TLS")?;
 
     let tls = ClientTlsConfig::new()
         .domain_name("localhost")
-        .ca_certificate(server_ca_cert)
-        .identity(client_identity);
+        .rustls_client_config(tls_config);
 
     let uri = args
         .address
         .parse::<Uri>()
         .context("Invalid address given")?;
 
-    let channel = Channel::builder(uri).tls_config(tls)?.connect().await?;
+    let channel = Channel::builder(uri)
+        .tls_config(tls)
+        .context("Couldn't apply TLS configuration")?
+        .connect()
+        .await?;
 
     let mut client = runner_client::RunnerClient::new(channel);
 
@@ -85,10 +88,7 @@ async fn run() -> Result<()> {
             let response = client.stop(request).await?;
 
             match response.into_inner().error {
-                Some(err) => {
-                    //println!("Error: {}", err.description)
-                    Err(anyhow!("Error: {}", err.description))
-                }
+                Some(err) => Err(anyhow!("Error: {}", err.description)),
                 None => {
                     println!("Stopped");
                     Ok(())
@@ -122,10 +122,7 @@ async fn run() -> Result<()> {
                         Ok(())
                     }
                 },
-                status_response::Results::Error(err) => {
-                    //println!("Error: {}", err.description);
-                    Err(anyhow!("Error: {}", err.description))
-                }
+                status_response::Results::Error(err) => Err(anyhow!("Error: {}", err.description)),
             }
         }
         Command::Log { id, descriptor } => {

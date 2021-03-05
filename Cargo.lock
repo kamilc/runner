@@ -879,6 +879,7 @@ dependencies = [
  "nix",
  "predicates",
  "prost",
+ "rustls",
  "serial_test",
  "structopt",
  "sysinfo",

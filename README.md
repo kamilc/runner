@@ -78,6 +78,7 @@ At any point, you can list all possible arguments that server and client take wi
 
 ```bash
 $ target/debug/client --help
+runner 0.1.0
 
 USAGE:
     client [OPTIONS] --cert <cert> --key <key> --server-ca <server-ca> <SUBCOMMAND>
@@ -89,6 +90,7 @@ FLAGS:
 OPTIONS:
         --address <address>        gRPC address [env: SERVER_ADDRESS=]  [default: dns://[::1]:50051]
         --cert <cert>              Path to the client certificate [env: CLIENT_CERT=]
+        --cipher <cipher>          Ciphersuite variant: chacha20 or aes [env: CIPHER=]  [default: chacha20]
         --key <key>                Path to the client key [env: CLIENT_KEY=]
         --server-ca <server-ca>    Path to the server's CA root certificate [env: SERVER_CA=]
 
@@ -116,6 +118,7 @@ FLAGS:
 OPTIONS:
         --address <address>        gRPC address [env: SERVER_ADDRESS=]  [default: [::1]:50051]
         --cert <cert>              Path to the server certificate [env: SERVER_CERT=]
+        --cipher <cipher>          Ciphersuite variant: chacha20 or aes [env: CIPHER=]  [default: chacha20]
         --client-ca <client-ca>    Path to the client's CA root certificate [env: CLIENT_CA=]
         --key <key>                Path to the server key [env: SERVER_KEY=]
 ```
