@@ -5,7 +5,7 @@ mod common;
 
 use anyhow::{anyhow, Result};
 use assert_cmd::prelude::*;
-use common::{correct_client, correct_server, incorrect_certificate_client};
+use common::{correct_client, correct_server, incorrect_ca_client, incorrect_certificate_client};
 use predicates::prelude::*;
 use std::panic;
 
@@ -116,6 +116,30 @@ fn log_streams_the_logs() -> Result<()> {
 
 #[test]
 #[serial]
+fn pointing_at_invalid_ca_makes_client_fail() -> Result<()> {
+    let mut server = correct_server()?;
+    let mut server_child = server.spawn()?;
+
+    let result = panic::catch_unwind(move || {
+        let mut client = incorrect_ca_client().unwrap();
+
+        let cmd = client.arg("run").arg("seq").arg("1").arg("10");
+
+        cmd.assert()
+            .failure()
+            .stderr(predicate::str::contains("invalid certificate"));
+    });
+
+    server_child.kill().unwrap();
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(_) => Err(anyhow!("panic occurred")),
+    }
+}
+
+#[test]
+#[serial]
 fn pointing_at_invalid_certifiate_makes_client_fail() -> Result<()> {
     let mut server = correct_server()?;
     let mut server_child = server.spawn()?;
@@ -127,7 +151,7 @@ fn pointing_at_invalid_certifiate_makes_client_fail() -> Result<()> {
 
         cmd.assert()
             .failure()
-            .stderr(predicate::str::contains("invalid certificate"));
+            .stderr(predicate::str::contains("Unauthorized"));
     });
 
     server_child.kill().unwrap();

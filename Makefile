@@ -53,16 +53,23 @@ example/server.in.pem: example/server.p8
 example/client.in.pem: example/client.p8
 	openssl req -new -key example/client.p8 -sha512 -subj "/O=goteleport/CN=client" -out example/client.in.pem
 
+example/client.invalid.in.pem: example/client.p8
+	openssl req -new -key example/client.p8 -sha512 -subj "/O=goteleport/CN=imtotallywrong" -out example/client.invalid.in.pem
+
 example/server.pem: example/v3.ext example/server.in.pem example/ca.pem example/ca.p8 example/ca.pem
 	openssl x509 -req -extfile example/v3.ext -sha512 -days 1825 -in example/server.in.pem -CA example/ca.pem -CAkey example/ca.p8 -CAcreateserial -out example/server.pem
 
 example/client.pem: example/v3.ext example/client.in.pem example/ca.pem example/ca.p8 example/ca.pem
 	openssl x509 -req -extfile example/v3.ext -sha512 -days 1825 -in example/client.in.pem -CA example/ca.pem -CAkey example/ca.p8 -CAcreateserial -out example/client.pem
 
-clean-certificates:
-	rm -f example/*.{p8,slr,pem,ext} example/verify
+example/client.invalid.pem: example/v3.ext example/client.invalid.in.pem example/ca.pem example/ca.p8 example/ca.pem
+	openssl x509 -req -extfile example/v3.ext -sha512 -days 1825 -in example/client.invalid.in.pem -CA example/ca.pem -CAkey example/ca.p8 -CAcreateserial -out example/client.invalid.pem
 
-example/verify: example/server.pem example/client.pem example/ca.other.pem
+clean-certificates:
+	rm -f example/*.{p8,slr,pem,ext} &&\
+	rm -f example/verify
+
+example/verify: example/server.pem example/client.pem example/client.invalid.pem example/ca.other.pem
 	openssl verify -verbose -CAfile example/ca.pem example/client.pem &&\
 	openssl verify -verbose -CAfile example/ca.pem example/server.pem &&\
 	echo "OK" > example/verify
