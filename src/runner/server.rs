@@ -64,7 +64,6 @@ impl RunnerServer {
                         "Unauthorized - no certificates found",
                     ));
                 }
-                unimplemented!();
             })
     }
 }
@@ -89,6 +88,8 @@ impl runner_server::Runner for RunnerServer {
     }
 
     async fn stop(&self, request: Request<StopRequest>) -> Result<Response<StopResponse>, Status> {
+        self.authorize(&request)?;
+
         let stop_request = request.into_inner();
 
         match self.runner.stop(&stop_request).await {
@@ -101,6 +102,8 @@ impl runner_server::Runner for RunnerServer {
         &self,
         request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
+        self.authorize(&request)?;
+
         let status_request = request.into_inner();
 
         match self.runner.status(&status_request).await {
@@ -117,6 +120,8 @@ impl runner_server::Runner for RunnerServer {
         &self,
         request: Request<LogRequest>,
     ) -> Result<Response<LogResponseStream>, Status> {
+        self.authorize(&request)?;
+
         let log_request = request.into_inner();
 
         match self.runner.log(&log_request).await {
