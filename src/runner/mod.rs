@@ -1,7 +1,9 @@
 mod cgroups;
 
 #[macro_use]
-mod service;
+pub mod service;
+
+pub mod server;
 
 mod log_stream;
 mod process_map;
@@ -37,7 +39,7 @@ use uuid::Uuid;
 
 /// Processes runner struct. Includes processes states and allows to
 /// run them, stop, get their status and the stream of logs
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Runner {
     /// an internal map from UUID to ExitStatus
     processes: ProcessMap,
@@ -49,6 +51,18 @@ pub struct Runner {
     buffer_size: Option<usize>,
 }
 
+// A more real implementation would make sure that the log_dir exists
+// Let's skip it for now as it's a proof-of-concept
+impl Default for Runner {
+    fn default() -> Self {
+        Runner {
+            processes: ProcessMap::default(),
+            log_dir: "tmp".to_string(),
+            buffer_size: Some(256),
+        }
+    }
+}
+
 impl Runner {
     /// Executes given command. Allows to specify the command name, arguments and
     /// resource constraints. Returns a UUID of the process or an error.
@@ -56,7 +70,7 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub async fn run(&mut self, request: &RunRequest) -> Result<Uuid, RunError> {
+    pub async fn run(&self, request: &RunRequest) -> Result<Uuid, RunError> {
         self.validate_run(&request)?;
 
         let id = Uuid::new_v4();
@@ -111,7 +125,7 @@ impl Runner {
     /// # Panics
     ///
     /// Panics if called from outside of the Tokio runtime.
-    pub async fn stop(&mut self, request: &StopRequest) -> Result<(), StopError> {
+    pub async fn stop(&self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if let Some(pid) = self.pid_for_process(&id) {
                 if let Some((_, Stopped(_))) = self.processes.read().unwrap().get(&id) {
@@ -145,7 +159,11 @@ impl Runner {
                             Ok(_) => {
                                 // let's give it a bit and re-check if the process
                                 // is still there in the next run of this loop
-                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                //
+                                // todo: uncomment this one once the process map is Send after
+                                // switching over to its tokio version
+                                //
+                                //tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                             Err(err) => {
                                 if let nix::Error::Sys(errno) = err {
@@ -168,24 +186,24 @@ impl Runner {
 
                 Ok(())
             } else {
-                return Err(TaskError {
+                Err(TaskError {
                     description: "Process not found".to_string(),
                     variant: stop_error::Error::ProcessNotFoundError as i32,
                 }
-                .into());
+                .into())
             }
         } else {
-            return Err(TaskError {
+            Err(TaskError {
                 description: "Invalid process id".to_string(),
                 variant: stop_error::Error::InvalidId as i32,
             }
-            .into());
+            .into())
         }
     }
 
     /// Fetches the status of the process if it was started by this instanmce of the Runner.
     /// If the process has finished, returns an exit code or the signal that killed it
-    pub async fn status(&mut self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
+    pub async fn status(&self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             let map = self.processes.read().unwrap();
 
@@ -224,24 +242,24 @@ impl Runner {
                     Running => Ok(StatusResult { finish: None }),
                 }
             } else {
-                return Err(TaskError {
+                Err(TaskError {
                     description: "Process not found".to_string(),
                     variant: status_error::Error::ProcessNotFoundError as i32,
                 }
-                .into());
+                .into())
             }
         } else {
-            return Err(TaskError {
+            Err(TaskError {
                 description: "Invalid process id".to_string(),
                 variant: status_error::Error::InvalidId as i32,
             }
-            .into());
+            .into())
         }
     }
 
     /// Returns a stream of stdout or stderr logs for a process. The stream implements
     /// futures::streams::Stream.
-    pub async fn log(&mut self, request: &LogRequest) -> Result<LogStream, LogError> {
+    pub async fn log(&self, request: &LogRequest) -> Result<LogStream, LogError> {
         let map = self.processes.read().unwrap();
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if map.get(&id).is_some() {
@@ -261,23 +279,23 @@ impl Runner {
                         self.buffer_size.unwrap_or(256),
                     )?)
                 }
-                None => return Err(InternalError {
+                None => Err(InternalError {
                     description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
                 }.into())
             }
             } else {
-                return Err(TaskError {
+                Err(TaskError {
                     description: "Process not found".to_string(),
                     variant: log_error::Error::ProcessNotFoundError as i32,
                 }
-                .into());
+                .into())
             }
         } else {
-            return Err(TaskError {
+            Err(TaskError {
                 description: "Invalid process id".to_string(),
                 variant: log_error::Error::InvalidId as i32,
             }
-            .into());
+            .into())
         }
     }
 
@@ -352,7 +370,7 @@ mod tests {
 
     #[tokio::test]
     async fn proper_run_returns_correct_uuid() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -367,7 +385,7 @@ mod tests {
 
     #[tokio::test]
     async fn incorrect_run_returns_error() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -391,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_after_proper_long_run_works() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -413,7 +431,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn basic_stop_works() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -451,7 +469,7 @@ mod tests {
 
     #[tokio::test]
     async fn gathering_logs_via_log_request_and_responce_stream_works_asynchronously() {
-        let mut runner = Runner {
+        let runner = Runner {
             log_dir: "tmp".to_string(),
             ..Default::default()
         };
@@ -483,5 +501,38 @@ mod tests {
         let first_value = stream.next().await;
 
         assert!(first_value.unwrap().unwrap() == "1\n2\n3\n4\n".as_bytes());
+    }
+
+    #[tokio::test]
+    async fn closed_processes_have_streams_with_an_end() {
+        let runner = Runner {
+            log_dir: "tmp".to_string(),
+            ..Default::default()
+        };
+
+        // let's use /usr/bin/env here not to assume where echo resides
+        // env is most often under /usr/bin
+        let run_request = RunRequest {
+            command: "/usr/bin/env".to_string(),
+            arguments: vec![
+                "bash".to_string(),
+                "-c".to_string(),
+                "echo test".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let id = runner.run(&run_request).await.unwrap();
+
+        let log_request = LogRequest {
+            id: id.to_string(),
+            descriptor: log_request::Descriptor::Stdout as i32,
+        };
+
+        let mut stream = runner.log(&log_request).await.unwrap();
+        let first_value = stream.next().await;
+
+        assert!(first_value.unwrap().unwrap() == "test\n".as_bytes());
+        assert!(stream.next().await.is_none());
     }
 }

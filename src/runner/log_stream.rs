@@ -26,9 +26,6 @@ pub struct LogStream {
     /// UUID of the process
     process_id: Uuid,
 
-    /// Internal state variable telling if reading can continue
-    closed: bool,
-
     /// Internal buffer for reading from the file
     buffer: Vec<u8>,
 }
@@ -52,7 +49,6 @@ impl LogStream {
             map,
             file,
             process_id,
-            closed: false,
             buffer,
         })
     }
@@ -67,18 +63,7 @@ impl Stream for LogStream {
         self: Pin<&mut Self>,
         cx: &mut futures::task::Context,
     ) -> Poll<Option<Self::Item>> {
-        if self.closed {
-            return Poll::Ready(None);
-        }
-
         let this = Pin::<&mut LogStream>::into_inner(self);
-
-        if let Some((_, Stopped(_))) = this.map.read().unwrap().get(&this.process_id) {
-            // exit code is present, process has ended, we're finishing here
-            if this.closed {
-                return Poll::Ready(None);
-            }
-        }
 
         let mut file_lock = this.file.write().unwrap();
         let file = file_lock.borrow_mut();
@@ -86,6 +71,9 @@ impl Stream for LogStream {
         if let Ok(bytes) = file.read(&mut this.buffer) {
             if bytes > 0 {
                 Poll::Ready(Some(Ok(this.buffer[0..bytes].to_vec())))
+            } else if let Some((_, Stopped(_))) = this.map.read().unwrap().get(&this.process_id) {
+                // exit code is present, process has ended, we're finishing here
+                Poll::Ready(None)
             } else {
                 // looks like there's no new data for now
                 let waker = cx.waker().clone();
@@ -96,8 +84,6 @@ impl Stream for LogStream {
                 Poll::Pending
             }
         } else {
-            this.closed = true;
-
             Poll::Ready(Some(Err(anyhow!("Error reading from log file").into())))
         }
     }
