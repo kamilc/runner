@@ -10,6 +10,9 @@ build:
 test: certificates
 	cargo test
 
+constraint-test: certificates
+	sudo -E env "PATH=$$PATH" cargo test -- --ignored
+
 example/v3.ext:
 	echo "$$V3EXT" > example/v3.ext
 

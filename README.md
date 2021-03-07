@@ -26,6 +26,18 @@ $ make test
 
 This generates the certificates if they are not present and runs `cargo test`.
 
+### Testing root requiring features
+
+As resource constraining requires root privileges, the integration tests covering it are marked as ignored
+when running the suite by default. There's a special `make` rule helper for running those tests in the
+context of a privileged user:
+
+```bash
+$ make constraint-test
+```
+
+The above command depends on `sudo` being present on the system and the user being in the "sudoers".
+
 ## Using the server and the client
 
 First make sure that the binaries have been compiled by running `make build`.
@@ -43,7 +55,7 @@ Now in a separate terminal, use the client as shown below:
 Creating a task:
 
 ```bash
-$ target/debug/client --cert example/client.pem --server-ca example/ca.pem --key example/client.p8 run bash -c 'for i in $(seq 1 99); do echo $i; sleep 1; done'
+$ target/debug/client --cert example/client.pem --server-ca example/ca.pem --key example/client.p8 run -- bash -c 'for i in $(seq 1 99); do echo $i; sleep 1; done'
 34ea3c1a-3413-4300-9ced-feab108cb5dc
 ```
 
