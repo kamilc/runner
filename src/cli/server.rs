@@ -19,6 +19,10 @@ pub struct Cli {
     #[structopt(long = "cipher", default_value = "chacha20", env = "CIPHER")]
     pub cipher: Cipher,
 
+    /// Suppress log messages
+    #[structopt(long = "silent")]
+    pub silent: bool,
+
     /// gRPC address
     #[structopt(
         long = "address",

@@ -22,7 +22,9 @@ use tonic::transport::{Server, ServerTlsConfig};
 async fn main() -> Result<()> {
     let args = Cli::from_args();
 
-    pretty_env_logger::init();
+    if !args.silent {
+        pretty_env_logger::init();
+    }
 
     start_server(args)
         .await
@@ -43,13 +45,17 @@ async fn start_server(args: Cli) -> Result<()> {
 
     tls.rustls_server_config(tls_config);
 
+    // As processes are not awaited in a blocking way but using try_wait in a loop
+    // (to keep the threads in a pool available), let's make sure we're not gonna
+    // produce zombie processes here.
+
     let mut signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT])?;
     tokio::spawn(async move {
         for sig in signals.forever() {
             println!("\nReceived signal {:?}. Cleaning up now.", sig);
 
             unsafe {
-                if let Err(err) = signal(Signal::SIGINT, SigHandler::SigIgn) {
+                if let Err(err) = signal(Signal::SIGCHLD, SigHandler::SigIgn) {
                     warn!("Couldn't set-up the children cleanups: {}", err.to_string());
                 }
             }

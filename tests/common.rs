@@ -13,7 +13,8 @@ pub fn correct_server() -> Result<Command> {
         .arg("--client-ca")
         .arg("example/ca.pem")
         .arg("--key")
-        .arg("example/server.p8");
+        .arg("example/server.p8")
+        .arg("--silent");
 
     Ok(server)
 }
