@@ -5,7 +5,7 @@ use tokio_rustls::rustls::{
 };
 
 // Allow dead code for these functions as always some binary
-// is not going to use on of them (e.g. client not using server config)
+// is not going to use one of them (e.g. client not using server config)
 
 #[allow(dead_code)]
 pub async fn client_config(
