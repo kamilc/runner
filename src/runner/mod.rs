@@ -1,17 +1,14 @@
-mod cgroups;
-
 #[macro_use]
 pub mod service;
-
 pub mod server;
 
-mod log_stream;
+mod cgroups;
 mod process_map;
 
 use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
+use futures::stream::{unfold, Stream};
 use log::warn;
-use log_stream::LogStream;
 use nix::errno::Errno;
 use nix::sys::signal;
 use nix::unistd::Pid;
@@ -33,7 +30,9 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// Processes runner struct. Includes processes states and allows to
@@ -79,12 +78,14 @@ impl Runner {
         let stderr =
             File::create(self.stderr_path(&id)).context("Couldn't open log file for STDERR")?;
 
-        Command::new(&request.command)
+        let spawn = Command::new(&request.command)
             .args(&request.arguments)
             .stdout(stdout)
             .stderr(stderr)
-            .spawn()
-            .map(|mut child| {
+            .spawn();
+
+        match spawn {
+            Ok(mut child) => {
                 let pid = controlgroup::Pid::from(&child);
 
                 cgroups
@@ -101,13 +102,13 @@ impl Runner {
                 let process_id = id;
                 let sys_pid = child.id();
 
-                let mut map = self.processes.write().unwrap();
+                let mut map = self.processes.write().await;
                 (*map).insert(id, (child.id(), Running));
 
                 let processes = Arc::clone(&self.processes);
                 tokio::spawn(async move {
                     if let Ok(exit_status) = child.wait() {
-                        let mut map = processes.write().unwrap();
+                        let mut map = processes.write().await;
                         (*map).insert(process_id, (sys_pid, Stopped(exit_status)));
                     } else {
                         warn!("Couldn't get the exit code for {}", process_id);
@@ -115,8 +116,9 @@ impl Runner {
                 });
 
                 Ok(id)
-            })
-            .context("Couldn't spawn the process as specified")?
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Stops a running process if it was started by this instance of the Runner
@@ -126,8 +128,8 @@ impl Runner {
     /// Panics if called from outside of the Tokio runtime.
     pub async fn stop(&self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
-            if let Some(pid) = self.pid_for_process(&id) {
-                if let Some((_, Stopped(_))) = self.processes.read().unwrap().get(&id) {
+            if let Some(pid) = self.pid_for_process(&id).await {
+                if let Some((_, Stopped(_))) = self.processes.read().await.get(&id) {
                     return Err(TaskError {
                         description: "Process already stopped".to_string(),
                         variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
@@ -149,7 +151,7 @@ impl Runner {
                     Ok(())
                 };
 
-                while let Some((_, Running)) = self.processes.read().unwrap().get(&id) {
+                while let Some((_, Running)) = self.processes.read().await.get(&id) {
                     if start.elapsed().as_secs() > 5 {
                         sigkill()?;
                         break;
@@ -158,11 +160,8 @@ impl Runner {
                             Ok(_) => {
                                 // let's give it a bit and re-check if the process
                                 // is still there in the next run of this loop
-                                //
-                                // todo: uncomment this one once the process map is Send after
-                                // switching over to its tokio version
-                                //
-                                //tokio::time::sleep(Duration::from_millis(100)).await;
+
+                                tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                             Err(err) => {
                                 if let nix::Error::Sys(errno) = err {
@@ -204,7 +203,7 @@ impl Runner {
     /// If the process has finished, returns an exit code or the signal that killed it
     pub async fn status(&self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
-            let map = self.processes.read().unwrap();
+            let map = self.processes.read().await;
 
             if let Some((_, process_status)) = map.get(&id) {
                 match process_status {
@@ -258,30 +257,70 @@ impl Runner {
 
     /// Returns a stream of stdout or stderr logs for a process. The stream implements
     /// futures::streams::Stream.
-    pub async fn log(&self, request: &LogRequest) -> Result<LogStream, LogError> {
-        let map = self.processes.read().unwrap();
+    pub async fn log(
+        &self,
+        request: &LogRequest,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, LogError>> + Send + Sync>>,
+        LogError,
+    > {
+        let map = self.processes.read().await;
+
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if map.get(&id).is_some() {
                 let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
 
                 match maybe_descriptor {
-                Some(descriptor) => {
-                    let log_path = match descriptor {
-                        log_request::Descriptor::Stdout => self.stdout_path(&id),
-                        log_request::Descriptor::Stderr => self.stderr_path(&id),
-                    };
+                    Some(descriptor) => {
+                        let log_path = match descriptor {
+                            log_request::Descriptor::Stdout => self.stdout_path(&id),
+                            log_request::Descriptor::Stderr => self.stderr_path(&id),
+                        };
 
-                    Ok(LogStream::open(
-                        id,
-                        Arc::clone(&self.processes),
-                        log_path.as_path(),
-                        self.buffer_size.unwrap_or(256),
-                    )?)
+                        let file = Arc::new(RwLock::new(
+                            tokio::fs::File::open(&log_path).await.context("Couldn't open log file")?,
+                        ));
+
+                        let buffer_size = self.buffer_size.unwrap_or(256);
+
+                        let buffer: Arc<RwLock<Vec<u8>>> = Arc::new(RwLock::new(Vec::with_capacity(buffer_size)));
+                        buffer.write().await.resize_with(buffer_size, Default::default);
+
+                        let state = (Arc::clone(&self.processes), file, buffer, id, false);
+
+                        Ok(Box::pin(unfold(state, |(processes, file, buffer, id, close)| async move {
+                            if close {
+                                return None;
+                            }
+
+                            let mut log = file.write().await;
+                            let mut buf = buffer.write().await;
+
+                            loop {
+                                if let Ok(bytes) = (*log).read(&mut *buf).await {
+                                    if bytes > 0 {
+                                        let data = (*buf)[0..bytes].to_vec();
+                                        let state = (processes, Arc::clone(&file), Arc::clone(&buffer), id, false);
+
+                                        return Some((Ok(data), state));
+                                    } else if let Some((_, Stopped(_))) = processes.read().await.get(&id) {
+                                        return None;
+                                    } else {
+                                        tokio::time::sleep(Duration::from_millis(100)).await;
+                                    }
+                                } else {
+                                    let state = (processes, Arc::clone(&file), Arc::clone(&buffer), id, true);
+
+                                    return Some((Err(anyhow!("Error reading from log file").into()), state));
+                                }
+                            }
+
+                        })))
+                    }
+                    None => Err(InternalError {
+                        description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
+                    }.into())
                 }
-                None => Err(InternalError {
-                    description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
-                }.into())
-            }
             } else {
                 Err(TaskError {
                     description: "Process not found".to_string(),
@@ -346,8 +385,8 @@ impl Runner {
     }
 
     /// Returns the PID for a given UUID id of the process
-    fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
-        let processes = self.processes.read().unwrap();
+    async fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
+        let processes = self.processes.read().await;
 
         if let Some((pid, _)) = (*processes).get(id) {
             Some(*pid)
@@ -446,7 +485,7 @@ mod tests {
         };
 
         let id = runner.run(&run_request).await.unwrap();
-        let pid = runner.pid_for_process(&id).unwrap();
+        let pid = runner.pid_for_process(&id).await.unwrap();
 
         let mut system = sysinfo::System::new();
         assert!(system.get_process(pid as i32).is_some());
