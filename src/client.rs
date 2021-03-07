@@ -76,10 +76,7 @@ async fn run() -> Result<()> {
                     println!("{}", id);
                     Ok(())
                 }
-                run_response::Results::Error(err) => {
-                    Err(anyhow!("Error: {}", err.description))
-                    //eprintln!("Error: {}", err.description)
-                }
+                run_response::Results::Error(err) => Err(anyhow!("Error: {}", err.description)),
             }
         }
         Command::Stop { id } => {
