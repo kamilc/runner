@@ -4,7 +4,6 @@ mod runner;
 mod tls;
 
 use anyhow::{anyhow, Context, Result};
-use cipher::Cipher;
 use cli::client::{Cli, Command, Descriptor};
 use std::io::Write;
 use structopt::StructOpt;
@@ -32,7 +31,7 @@ fn main() -> Result<()> {
 async fn run() -> Result<()> {
     let args = Cli::from_args();
 
-    let tls_config = client_config(args.cert, args.key, args.server_ca, Cipher::ChaCha20)
+    let tls_config = client_config(args.cert, args.key, args.server_ca, args.cipher)
         .await
         .context("Couldn't configure TLS")?;
 

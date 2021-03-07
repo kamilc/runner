@@ -5,7 +5,6 @@ mod tls;
 
 use crate::runner::service::runner_server;
 use anyhow::{Context, Result};
-use cipher::Cipher;
 use cli::server::Cli;
 use runner::server::RunnerServer;
 use structopt::StructOpt;
@@ -30,7 +29,7 @@ async fn start_server(args: Cli) -> Result<()> {
         .context("Failed to parse the server bind address")?;
 
     let server = RunnerServer::default();
-    let tls_config = server_config(args.cert, args.key, args.client_ca, Cipher::ChaCha20).await?;
+    let tls_config = server_config(args.cert, args.key, args.client_ca, args.cipher).await?;
     let mut tls = ServerTlsConfig::new();
 
     tls.rustls_server_config(tls_config);
