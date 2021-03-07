@@ -6,7 +6,14 @@ mod tls;
 use crate::runner::service::runner_server;
 use anyhow::{Context, Result};
 use cli::server::Cli;
+use log::warn;
+use nix::sys::signal::signal;
+use nix::sys::signal::{SigHandler, Signal};
 use runner::server::RunnerServer;
+use signal_hook::{
+    consts::signal::{SIGINT, SIGQUIT, SIGTERM},
+    iterator::Signals,
+};
 use structopt::StructOpt;
 use tls::server_config;
 use tonic::transport::{Server, ServerTlsConfig};
@@ -14,6 +21,8 @@ use tonic::transport::{Server, ServerTlsConfig};
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::from_args();
+
+    pretty_env_logger::init();
 
     start_server(args)
         .await
@@ -33,6 +42,21 @@ async fn start_server(args: Cli) -> Result<()> {
     let mut tls = ServerTlsConfig::new();
 
     tls.rustls_server_config(tls_config);
+
+    let mut signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT])?;
+    tokio::spawn(async move {
+        for sig in signals.forever() {
+            println!("\nReceived signal {:?}. Cleaning up now.", sig);
+
+            unsafe {
+                if let Err(err) = signal(Signal::SIGINT, SigHandler::SigIgn) {
+                    warn!("Couldn't set-up the children cleanups: {}", err.to_string());
+                }
+            }
+
+            std::process::exit(0);
+        }
+    });
 
     println!("Starting Runner server at {}", &addr);
 

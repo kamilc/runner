@@ -51,6 +51,12 @@ $ sudo target/debug/server --cert example/server.pem --client-ca example/ca.pem 
 
 Notice the need for `sudo` as the server needs privileges for creating Linux control groups.
 
+You can also run the server with log messages enabled:
+
+```bash
+$ RUST_LOG=info sudo -E target/debug/server --cert example/server.pem --client-ca example/ca.pem --key example/server.p8
+```
+
 Now in a separate terminal, use the client as shown below:
 
 Creating a task:

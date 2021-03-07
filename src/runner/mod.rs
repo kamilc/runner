@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
 use controlgroup::v1::CommandExt;
 use futures::stream::{unfold, Stream};
-use log::warn;
+use log::{info, warn};
 use nix::errno::Errno;
 use nix::sys::signal;
 use nix::unistd::Pid;
@@ -97,16 +97,35 @@ impl Runner {
                 let mut map = self.processes.write().await;
                 (*map).insert(id, (child.id(), Running));
 
+                info!("Spawned child {} for {}", &sys_pid, &id);
+
                 tokio::spawn(async move {
-                    if let Ok(exit_status) = child.wait() {
-                        let mut map = processes.write().await;
-                        (*map).insert(id, (sys_pid, Stopped(exit_status)));
-                    } else {
-                        warn!("Couldn't get the exit status for {}", &id);
+                    // let's not block the thread while waiting but give it back
+                    // while scheduling to re-check a bit later:
+
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(exit_status)) => {
+                                let mut map = processes.write().await;
+                                (*map).insert(id, (sys_pid, Stopped(exit_status)));
+
+                                break;
+                            }
+                            Ok(None) => {
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                            }
+                            Err(_) => {
+                                warn!("Couldn't get the exit status for {}", &id);
+                            }
+                        }
                     }
 
-                    if cgroups.delete().is_err() {
-                        warn!("Couldn't delete control group for {}", &id)
+                    if let Err(err) = cgroups.delete() {
+                        warn!(
+                            "Couldn't delete control group for {}: {}",
+                            &id,
+                            err.to_string()
+                        )
                     }
                 });
 

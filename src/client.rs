@@ -17,6 +17,8 @@ use crate::runner::service::{
 };
 
 fn main() -> Result<()> {
+    pretty_env_logger::init();
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
