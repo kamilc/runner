@@ -7,6 +7,7 @@ mod process_map;
 
 use anyhow::{anyhow, Context, Result};
 use cgroups::create_cgroups;
+use controlgroup::v1::CommandExt;
 use futures::stream::{unfold, Stream};
 use log::warn;
 use nix::errno::Errno;
@@ -82,36 +83,30 @@ impl Runner {
             .args(&request.arguments)
             .stdout(stdout)
             .stderr(stderr)
+            // following call uses pre_exec under the hood, adding
+            // the child's PID to the configured control groups
+            // in between the fork and exec steps:
+            .cgroups_unified_repr(&mut cgroups)
             .spawn();
 
         match spawn {
             Ok(mut child) => {
-                let pid = controlgroup::Pid::from(&child);
-
-                cgroups
-                    .add_task(pid)
-                    .context("Couldn't add new process to the new Linux control group")
-                    .map_err(|err| match &child.kill() {
-                        Ok(_) => err,
-                        Err(kerr) => anyhow!(
-                            "Couldn't kill the process after failing to apply a control group: {}",
-                            kerr
-                        ),
-                    })?;
-
-                let process_id = id;
                 let sys_pid = child.id();
+                let processes = Arc::clone(&self.processes);
 
                 let mut map = self.processes.write().await;
                 (*map).insert(id, (child.id(), Running));
 
-                let processes = Arc::clone(&self.processes);
                 tokio::spawn(async move {
                     if let Ok(exit_status) = child.wait() {
                         let mut map = processes.write().await;
-                        (*map).insert(process_id, (sys_pid, Stopped(exit_status)));
+                        (*map).insert(id, (sys_pid, Stopped(exit_status)));
                     } else {
-                        warn!("Couldn't get the exit code for {}", process_id);
+                        warn!("Couldn't get the exit status for {}", &id);
+                    }
+
+                    if cgroups.delete().is_err() {
+                        warn!("Couldn't delete control group for {}", &id)
                     }
                 });
 
