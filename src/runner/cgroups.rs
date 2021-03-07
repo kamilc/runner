@@ -19,6 +19,12 @@ pub fn create_cgroups(request: &RunRequest, id: &Uuid) -> Result<UnifiedRepr> {
     }
 
     if let Some(run_request::Disk::MaxDisk(max)) = request.disk {
+        // The blkio.weight and similar are often disabled on some
+        // of the latest distros (Ubuntu 20.04 being one example)
+        // Let's iterate through found block devices and set read
+        // and write bps for the sake of disk constraining
+        // requirement of this proof-of-concept
+
         let mut enumerator = udev::Enumerator::new().unwrap();
         enumerator.match_subsystem("block").unwrap();
 
