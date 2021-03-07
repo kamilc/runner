@@ -24,7 +24,7 @@ pub enum Command {
         cpu: Option<u64>,
 
         #[structopt(long)]
-        /// Max disk weight
+        /// Max read and write bytes/s for all disk devices
         disk: Option<u64>,
 
         /// Command to run

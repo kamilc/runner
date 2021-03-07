@@ -4,7 +4,8 @@ A job worker service and its client. It allows its users to run arbitrary Linux 
 
 ## Requirements
 
-* A x86-64 Linux machine (other architectures were not tested)
+* A x86-64 Linux machine with v1 control groups enabled (other architectures were not tested)
+* libudev
 * rustc 1.52.0-nightly
 * rustfmt (needed to compile protobufs)
 

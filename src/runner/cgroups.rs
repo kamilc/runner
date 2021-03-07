@@ -3,7 +3,7 @@ use crate::runner::service::{run_request, RunRequest};
 use controlgroup::v1::{Builder, UnifiedRepr};
 
 use anyhow::{Context, Result};
-use std::convert::TryFrom;
+use controlgroup::Device;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -19,7 +19,36 @@ pub fn create_cgroups(request: &RunRequest, id: &Uuid) -> Result<UnifiedRepr> {
     }
 
     if let Some(run_request::Disk::MaxDisk(max)) = request.disk {
-        builder = builder.blkio().weight(u16::try_from(max)?).done();
+        let mut enumerator = udev::Enumerator::new().unwrap();
+        enumerator.match_subsystem("block").unwrap();
+
+        let devices = enumerator
+            .scan_devices()?
+            .filter_map(|device| {
+                if let Some(devnum) = device.devnum() {
+                    let major = (devnum & 0xFF00) >> 8;
+                    let minor = devnum & 0xFFFF00FF;
+
+                    device.devtype().and_then(|devtype| {
+                        devtype.to_str().and_then(|typ| {
+                            if typ == "disk" {
+                                Some((Device::from([major as u16, minor as u16]), max))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<(Device, u64)>>();
+
+        builder = builder
+            .blkio()
+            .read_bps_device(devices.iter().copied())
+            .write_bps_device(devices.iter().copied())
+            .done();
     }
 
     builder

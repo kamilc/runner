@@ -173,6 +173,39 @@ fn running_under_constrained_memory_makes_cmd_fail_when_going_over() -> Result<(
 
 #[test]
 #[serial]
+#[ignore]
+fn running_under_constrained_disk_works() -> Result<()> {
+    let mut server = correct_server()?;
+    let mut server_child = server.spawn()?;
+
+    let result = panic::catch_unwind(move || {
+        let mut client = correct_client().unwrap();
+
+        let output = client
+            .args(vec!["run", "--disk", "100", "--", "bash", "-c", "sleep 60"])
+            .output()
+            .unwrap();
+
+        let id = std::str::from_utf8(&output.stdout).unwrap().trim();
+
+        let mut client = correct_client().unwrap();
+        let cmd = client.arg("status").arg(id);
+
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::contains("Running"));
+    });
+
+    server_child.kill().unwrap();
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(_) => Err(anyhow!("panic occurred")),
+    }
+}
+
+#[test]
+#[serial]
 fn status_returns_running_when_running() -> Result<()> {
     let mut server = correct_server()?;
     let mut server_child = server.spawn()?;
