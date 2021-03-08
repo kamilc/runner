@@ -436,7 +436,6 @@ mod tests {
 
     use super::*;
     use futures::StreamExt;
-    use service;
     use sysinfo::SystemExt;
 
     #[tokio::test]
