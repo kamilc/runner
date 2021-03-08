@@ -1064,7 +1064,6 @@ dependencies = [
  "prost",
  "rustls",
  "serial_test",
- "signal-hook",
  "structopt",
  "sysinfo",
  "thiserror",
@@ -1178,16 +1177,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "signal-hook"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7f3f92a1da3d6b1d32245d0cbcbbab0cfc45996d8df619c42bccfa6d2bbb5f"
-dependencies = [
- "libc",
- "signal-hook-registry",
 ]
 
 [[package]]
