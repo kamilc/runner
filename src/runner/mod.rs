@@ -110,8 +110,15 @@ impl Runner {
                 info!("Spawned child {} for {}", &sys_pid, &id);
 
                 tokio::spawn(async move {
-                    // let's not block the thread while waiting but give it back
-                    // while scheduling to re-check a bit later:
+                    // Let's not block the thread while waiting but give it back
+                    // while scheduling to re-check a bit later.
+                    //
+                    // A fuller solution would be to kill child processes upon us
+                    // receiving SIGINT, SIGTERM or SIGQUIT. In order to do so
+                    // properly, a PID namespace would need to be unshared - to
+                    // defend against the "double-fork" daemoning where the second
+                    // one in reparented to the init process. This stays out of
+                    // scope of this work though.
 
                     loop {
                         match child.try_wait() {
