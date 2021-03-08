@@ -36,6 +36,16 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+/// State of the log stream
+#[derive(Clone)]
+struct StreamState {
+    processes: ProcessMap,
+    file: Arc<RwLock<tokio::fs::File>>,
+    buffer: Arc<RwLock<Vec<u8>>>,
+    id: Uuid,
+    close: bool,
+}
+
 /// Processes runner struct. Includes processes states and allows to
 /// run them, stop, get their status and the stream of logs
 #[derive(Clone, Debug)]
@@ -300,32 +310,37 @@ impl Runner {
                         let buffer: Arc<RwLock<Vec<u8>>> = Arc::new(RwLock::new(Vec::with_capacity(buffer_size)));
                         buffer.write().await.resize_with(buffer_size, Default::default);
 
-                        let state = (Arc::clone(&self.processes), file, buffer, id, false);
+                        let state = StreamState {
+                            processes: Arc::clone(&self.processes),
+                            file,
+                            buffer,
+                            id,
+                            close: false
+                        };
 
-                        Ok(Box::pin(unfold(state, |(processes, file, buffer, id, close)| async move {
-                            if close {
+                        Ok(Box::pin(unfold(state, |state| async move {
+                            if state.close {
                                 return None;
                             }
 
-                            let mut log = file.write().await;
-                            let mut buf = buffer.write().await;
+                            let mut log = state.file.write().await;
+                            let mut buf = state.buffer.write().await;
 
                             loop {
                                 if let Ok(bytes) = (*log).read(&mut *buf).await {
                                     if bytes > 0 {
                                         let data = (*buf)[0..bytes].to_vec();
-                                        let state = (processes, Arc::clone(&file), Arc::clone(&buffer), id, false);
 
-                                        return Some((Ok(data), state));
-                                    } else if let Some((_, Stopped(_))) = processes.read().await.get(&id) {
+                                        return Some((Ok(data), state.clone()));
+                                    } else if let Some((_, Stopped(_))) = state.processes.read().await.get(&state.id) {
                                         return None;
                                     } else {
                                         tokio::time::sleep(Duration::from_millis(100)).await;
                                     }
                                 } else {
-                                    let state = (processes, Arc::clone(&file), Arc::clone(&buffer), id, true);
+                                    let state = StreamState { close: true, ..state.clone() };
 
-                                    return Some((Err(anyhow!("Error reading from log file").into()), state));
+                                    return Some((Err(anyhow!("Error reading from log file").into()), state ));
                                 }
                             }
 
