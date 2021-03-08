@@ -281,6 +281,10 @@ impl Runner {
 
     /// Returns a stream of stdout or stderr logs for a process. The stream implements
     /// futures::streams::Stream.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called from outside of the Tokio runtime.
     pub async fn log(
         &self,
         request: &LogRequest,
