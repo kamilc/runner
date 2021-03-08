@@ -31,15 +31,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// State of the log stream
-#[derive(Clone)]
 struct StreamState {
     processes: ProcessMap,
-    file: Arc<RwLock<tokio::fs::File>>,
-    buffer: Arc<RwLock<Vec<u8>>>,
+    file: tokio::fs::File,
+    buffer: Vec<u8>,
     id: Uuid,
     close: bool,
 }
@@ -290,14 +288,10 @@ impl Runner {
                             log_request::Descriptor::Stderr => self.stderr_path(&id),
                         };
 
-                        let file = Arc::new(RwLock::new(
-                            tokio::fs::File::open(&log_path).await.context("Couldn't open log file")?,
-                        ));
+                        let file = tokio::fs::File::open(&log_path).await.context("Couldn't open log file")?;
 
                         let buffer_size = self.buffer_size.unwrap_or(256);
-
-                        let buffer: Arc<RwLock<Vec<u8>>> = Arc::new(RwLock::new(Vec::with_capacity(buffer_size)));
-                        buffer.write().await.resize_with(buffer_size, Default::default);
+                        let buffer = vec![0_u8; buffer_size];
 
                         let state = StreamState {
                             processes: Arc::clone(&self.processes),
@@ -307,27 +301,24 @@ impl Runner {
                             close: false
                         };
 
-                        Ok(Box::pin(unfold(state, |state| async move {
+                        Ok(Box::pin(unfold(state, |mut state| async move {
                             if state.close {
                                 return None;
                             }
 
-                            let mut log = state.file.write().await;
-                            let mut buf = state.buffer.write().await;
-
                             loop {
-                                if let Ok(bytes) = (*log).read(&mut *buf).await {
+                                if let Ok(bytes) = state.file.read(&mut state.buffer).await {
                                     if bytes > 0 {
-                                        let data = (*buf)[0..bytes].to_vec();
+                                        let data = state.buffer[0..bytes].to_vec();
 
-                                        return Some((Ok(data), state.clone()));
+                                        return Some((Ok(data), state));
                                     } else if let Some((_, Stopped(_))) = state.processes.read().await.get(&state.id) {
                                         return None;
                                     } else {
                                         tokio::time::sleep(Duration::from_millis(100)).await;
                                     }
                                 } else {
-                                    let state = StreamState { close: true, ..state.clone() };
+                                    let state = StreamState { close: true, ..state };
 
                                     return Some((Err(anyhow!("Error reading from log file").into()), state ));
                                 }
