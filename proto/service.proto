@@ -40,7 +40,6 @@ message RunResponse {
   message RunError {
     enum Error {
       NAME_EMPTY_ERROR = 0;
-      INVALID_MAX_DISK = 1;
     }
 
     string description = 1;

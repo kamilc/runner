@@ -19,11 +19,10 @@ use process_map::{
 use service::{
     log_request,
     log_response::{log_error, LogError},
-    run_request::Disk,
     run_response::{run_error, RunError},
     status_response::{status_error, status_result, StatusError, StatusResult},
     stop_response::{stop_error, StopError},
-    InternalError, LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
+    InternalError, LogRequest, RunRequest, StatusRequest, StopRequest,
 };
 use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
@@ -79,7 +78,9 @@ impl Runner {
     ///
     /// Panics if called from outside of the Tokio runtime.
     pub async fn run(&self, request: &RunRequest) -> Result<Uuid, RunError> {
-        self.validate_run(&request)?;
+        if request.command.trim().is_empty() {
+            return Err(run_error::Error::NameEmptyError.into());
+        }
 
         let id = Uuid::new_v4();
         let mut cgroups = create_cgroups(request, &id).context("Couldn't create a cgroup")?;
@@ -160,22 +161,14 @@ impl Runner {
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if let Some(pid) = self.pid_for_process(&id).await {
                 if let Some((_, Stopped(_))) = self.processes.read().await.get(&id) {
-                    return Err(TaskError {
-                        description: "Process already stopped".to_string(),
-                        variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
-                    }
-                    .into());
+                    return Err(stop_error::Error::ProcessAlreadyStoppedError.into());
                 }
 
                 let start = Instant::now();
 
                 let sigkill = || -> Result<(), StopError> {
                     if signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGKILL).is_err() {
-                        return Err(TaskError {
-                            description: "Couldn't kill a process".to_string(),
-                            variant: stop_error::Error::CouldntStopError as i32,
-                        }
-                        .into());
+                        return Err(stop_error::Error::CouldntStopError.into());
                     }
 
                     Ok(())
@@ -214,18 +207,10 @@ impl Runner {
 
                 Ok(())
             } else {
-                Err(TaskError {
-                    description: "Process not found".to_string(),
-                    variant: stop_error::Error::ProcessNotFoundError as i32,
-                }
-                .into())
+                Err(stop_error::Error::ProcessNotFoundError.into())
             }
         } else {
-            Err(TaskError {
-                description: "Invalid process id".to_string(),
-                variant: stop_error::Error::InvalidId as i32,
-            }
-            .into())
+            Err(stop_error::Error::InvalidId.into())
         }
     }
 
@@ -270,18 +255,10 @@ impl Runner {
                     Running => Ok(StatusResult { finish: None }),
                 }
             } else {
-                Err(TaskError {
-                    description: "Process not found".to_string(),
-                    variant: status_error::Error::ProcessNotFoundError as i32,
-                }
-                .into())
+                Err(status_error::Error::ProcessNotFoundError.into())
             }
         } else {
-            Err(TaskError {
-                description: "Invalid process id".to_string(),
-                variant: status_error::Error::InvalidId as i32,
-            }
-            .into())
+            Err(status_error::Error::InvalidId.into())
         }
     }
 
@@ -361,18 +338,10 @@ impl Runner {
                     }.into())
                 }
             } else {
-                Err(TaskError {
-                    description: "Process not found".to_string(),
-                    variant: log_error::Error::ProcessNotFoundError as i32,
-                }
-                .into())
+                Err(log_error::Error::ProcessNotFoundError.into())
             }
         } else {
-            Err(TaskError {
-                description: "Invalid process id".to_string(),
-                variant: log_error::Error::InvalidId as i32,
-            }
-            .into())
+            Err(log_error::Error::InvalidId.into())
         }
     }
 
@@ -394,33 +363,6 @@ impl Runner {
         path.push(format!("{}.stderr.txt", id));
 
         path
-    }
-
-    /// Validates the "run process" request
-    fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
-        if request.command.trim().is_empty() {
-            return Err(TaskError {
-                description: "Command name empty".to_string(),
-                variant: run_error::Error::NameEmptyError as i32,
-            }
-            .into());
-        }
-
-        if let Some(Disk::MaxDisk(max)) = request.disk {
-            if max > 1000 {
-                return Err(TaskError {
-                    description: "Max disk weight given greater than 1000 which is invalid"
-                        .to_string(),
-                    variant: run_error::Error::InvalidMaxDisk as i32,
-                }
-                .into());
-            }
-        }
-
-        // Not validating arguments here since they really *can* be
-        // anything. It's possible e.g. for some of them to be empty.
-
-        Ok(())
     }
 
     /// Returns the PID for a given UUID id of the process
@@ -467,8 +409,7 @@ mod tests {
         };
 
         let request = RunRequest {
-            command: "date".to_string(),
-            disk: Some(service::run_request::Disk::MaxDisk(2000)),
+            command: "".to_string(),
             ..Default::default()
         };
 
@@ -478,7 +419,7 @@ mod tests {
         assert!(
             res.err().unwrap().errors.unwrap()
                 == service::run_response::run_error::Errors::RunError(
-                    service::run_response::run_error::Error::InvalidMaxDisk as i32
+                    service::run_response::run_error::Error::NameEmptyError as i32
                 )
         );
     }
