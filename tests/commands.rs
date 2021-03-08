@@ -73,12 +73,12 @@ fn running_under_constrained_memory_works() -> Result<()> {
     let result = panic::catch_unwind(move || {
         let mut client = correct_client().unwrap();
 
-        // 7MB = 7340032bytes should be enough for bash to run
+        // 7MB = 7000000bytes should be enough for bash to run
         // on any system
 
         let output = client
             .args(vec![
-                "run", "--memory", "7340032", "--", "bash", "-c", "sleep 60",
+                "run", "--memory", "7000000", "--", "bash", "-c", "sleep 60",
             ])
             .output()
             .unwrap();
