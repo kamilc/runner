@@ -164,7 +164,7 @@ impl Runner {
                     return Err(stop_error::Error::ProcessAlreadyStoppedError.into());
                 }
 
-                let start = Instant::now();
+                let mut start: Option<Instant> = None;
 
                 let sigkill = || -> Result<(), StopError> {
                     if signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGKILL).is_err() {
@@ -175,10 +175,12 @@ impl Runner {
                 };
 
                 while let Some((_, Running)) = self.processes.read().await.get(&id) {
-                    if start.elapsed().as_secs() > 5 {
+                    if start.is_some() && start.unwrap().elapsed().as_secs() > 5 {
                         sigkill()?;
                         break;
                     } else {
+                        start = Some(Instant::now());
+
                         match signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM) {
                             Ok(_) => {
                                 // let's give it a bit and re-check if the process
