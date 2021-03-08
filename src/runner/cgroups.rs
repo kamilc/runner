@@ -3,8 +3,10 @@ use crate::runner::service::{run_request, RunRequest};
 use controlgroup::v1::{Builder, UnifiedRepr};
 
 use anyhow::{Context, Result};
+use controlgroup::v1::Cgroup;
 use controlgroup::Device;
 use std::path::PathBuf;
+use tokio::process::Command;
 use uuid::Uuid;
 
 pub fn create_cgroups(request: &RunRequest, id: &Uuid) -> Result<UnifiedRepr> {
@@ -60,4 +62,12 @@ pub fn create_cgroups(request: &RunRequest, id: &Uuid) -> Result<UnifiedRepr> {
     builder
         .build()
         .context("Couldn't create a Linux control group for the new process")
+}
+
+pub fn apply_cgroup_pre_exec<C: Cgroup>(cmd: &mut Command, cgroup: &C) {
+    let path = cgroup.path().join("cgroup.procs");
+
+    unsafe {
+        cmd.pre_exec(move || std::fs::write(&path, std::process::id().to_string()));
+    }
 }

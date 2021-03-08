@@ -6,8 +6,7 @@ mod cgroups;
 mod process_map;
 
 use anyhow::{anyhow, Context, Result};
-use cgroups::create_cgroups;
-use controlgroup::v1::CommandExt;
+use cgroups::{apply_cgroup_pre_exec, create_cgroups};
 use futures::stream::{unfold, Stream};
 use log::{info, warn};
 use nix::errno::Errno;
@@ -29,10 +28,10 @@ use service::{
 use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -89,30 +88,37 @@ impl Runner {
         let stderr =
             File::create(self.stderr_path(&id)).context("Couldn't open log file for STDERR")?;
 
-        let spawn = Command::new(&request.command)
-            .args(&request.arguments)
-            .stdout(stdout)
-            .stderr(stderr)
-            // following call uses pre_exec under the hood, adding
-            // the child's PID to the configured control groups
-            // in between the fork and exec steps:
-            .cgroups_unified_repr(&mut cgroups)
-            .spawn();
+        let mut cmd = Command::new(&request.command);
+
+        cmd.args(&request.arguments);
+        cmd.stdout(stdout);
+        cmd.stderr(stderr);
+
+        if let Some(cgroup) = &cgroups.cpu() {
+            apply_cgroup_pre_exec(&mut cmd, *cgroup);
+        }
+
+        if let Some(cgroup) = &cgroups.memory() {
+            apply_cgroup_pre_exec(&mut cmd, *cgroup);
+        }
+
+        if let Some(cgroup) = &cgroups.blkio() {
+            apply_cgroup_pre_exec(&mut cmd, *cgroup);
+        }
+
+        let spawn = cmd.spawn();
 
         match spawn {
             Ok(mut child) => {
-                let sys_pid = child.id();
+                let sys_pid: u32 = child.id().unwrap();
                 let processes = Arc::clone(&self.processes);
 
                 let mut map = self.processes.write().await;
-                (*map).insert(id, (child.id(), Running));
+                (*map).insert(id, (child.id().unwrap(), Running));
 
                 info!("Spawned child {} for {}", &sys_pid, &id);
 
                 tokio::spawn(async move {
-                    // Let's not block the thread while waiting but give it back
-                    // while scheduling to re-check a bit later.
-                    //
                     // A fuller solution would be to kill child processes upon us
                     // receiving SIGINT, SIGTERM or SIGQUIT. In order to do so
                     // properly, a PID namespace would need to be unshared - to
@@ -120,20 +126,13 @@ impl Runner {
                     // one in reparented to the init process. This stays out of
                     // scope of this work though.
 
-                    loop {
-                        match child.try_wait() {
-                            Ok(Some(exit_status)) => {
-                                let mut map = processes.write().await;
-                                (*map).insert(id, (sys_pid, Stopped(exit_status)));
-
-                                break;
-                            }
-                            Ok(None) => {
-                                tokio::time::sleep(Duration::from_millis(100)).await;
-                            }
-                            Err(_) => {
-                                warn!("Couldn't get the exit status for {}", &id);
-                            }
+                    match child.wait().await {
+                        Ok(exit_status) => {
+                            let mut map = processes.write().await;
+                            (*map).insert(id, (sys_pid, Stopped(exit_status)));
+                        }
+                        Err(_) => {
+                            warn!("Couldn't get the exit status for {}", &id);
                         }
                     }
 
