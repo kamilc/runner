@@ -46,7 +46,7 @@ $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o ~/rustup.sh
 $ sh ~/rustup.sh -y --default-toolchain="nightly"
 ```
 
-The testing suite that checks features requiring root privileges uses sudo. If you're using `rustup` make sure the toolchain is configured coreectly with:
+The testing suite that checks features requiring root privileges uses sudo. If you're using `rustup` make sure the toolchain is configured corectly with:
 
 ```bash
 sudo -E env "PATH=$PATH" rustup default nightly
