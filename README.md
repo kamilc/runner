@@ -4,7 +4,9 @@ A job worker service and its client. It allows its users to run arbitrary Linux 
 
 ## Requirements
 
-* A x86-64 Linux machine (other architectures were not tested)
+* A x86-64 Linux machine with v1 control groups enabled (other architectures were not tested)
+* libudev
+* pkg-config
 * rustc 1.52.0-nightly
 * rustfmt (needed to compile protobufs)
 
@@ -26,6 +28,18 @@ $ make test
 
 This generates the certificates if they are not present and runs `cargo test`.
 
+### Testing root requiring features
+
+As resource constraining requires root privileges, the integration tests covering it are marked as ignored
+when running the suite by default. There's a special `make` rule helper for running those tests in the
+context of a privileged user:
+
+```bash
+$ make constraint-test
+```
+
+The above command depends on `sudo` being present on the system and the user being in the "sudoers".
+
 ## Using the server and the client
 
 First make sure that the binaries have been compiled by running `make build`.
@@ -38,12 +52,18 @@ $ sudo target/debug/server --cert example/server.pem --client-ca example/ca.pem 
 
 Notice the need for `sudo` as the server needs privileges for creating Linux control groups.
 
+You can also run the server with log messages enabled:
+
+```bash
+$ RUST_LOG=info sudo -E target/debug/server --cert example/server.pem --client-ca example/ca.pem --key example/server.p8
+```
+
 Now in a separate terminal, use the client as shown below:
 
 Creating a task:
 
 ```bash
-$ target/debug/client --cert example/client.pem --server-ca example/ca.pem --key example/client.p8 run bash -c 'for i in $(seq 1 99); do echo $i; sleep 1; done'
+$ target/debug/client --cert example/client.pem --server-ca example/ca.pem --key example/client.p8 run -- bash -c 'for i in $(seq 1 99); do echo $i; sleep 1; done'
 34ea3c1a-3413-4300-9ced-feab108cb5dc
 ```
 
@@ -78,6 +98,7 @@ At any point, you can list all possible arguments that server and client take wi
 
 ```bash
 $ target/debug/client --help
+runner 0.1.0
 
 USAGE:
     client [OPTIONS] --cert <cert> --key <key> --server-ca <server-ca> <SUBCOMMAND>
@@ -89,6 +110,7 @@ FLAGS:
 OPTIONS:
         --address <address>        gRPC address [env: SERVER_ADDRESS=]  [default: dns://[::1]:50051]
         --cert <cert>              Path to the client certificate [env: CLIENT_CERT=]
+        --cipher <cipher>          Ciphersuite variant: chacha20 or aes [env: CIPHER=]  [default: chacha20]
         --key <key>                Path to the client key [env: CLIENT_KEY=]
         --server-ca <server-ca>    Path to the server's CA root certificate [env: SERVER_CA=]
 
@@ -116,6 +138,7 @@ FLAGS:
 OPTIONS:
         --address <address>        gRPC address [env: SERVER_ADDRESS=]  [default: [::1]:50051]
         --cert <cert>              Path to the server certificate [env: SERVER_CERT=]
+        --cipher <cipher>          Ciphersuite variant: chacha20 or aes [env: CIPHER=]  [default: chacha20]
         --client-ca <client-ca>    Path to the client's CA root certificate [env: CLIENT_CA=]
         --key <key>                Path to the server key [env: SERVER_KEY=]
 ```

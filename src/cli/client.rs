@@ -1,3 +1,4 @@
+use crate::cipher::Cipher;
 use clap::arg_enum;
 use structopt::StructOpt;
 use uuid::Uuid;
@@ -23,7 +24,7 @@ pub enum Command {
         cpu: Option<u64>,
 
         #[structopt(long)]
-        /// Max disk weight
+        /// Max read and write bytes/s for all disk devices
         disk: Option<u64>,
 
         /// Command to run
@@ -73,6 +74,10 @@ pub struct Cli {
         default_value = "dns://[::1]:50051"
     )]
     pub address: String,
+
+    /// Ciphersuite variant: chacha20 or aes
+    #[structopt(long = "cipher", default_value = "chacha20", env = "CIPHER")]
+    pub cipher: Cipher,
 
     #[structopt(subcommand)]
     pub command: Command,

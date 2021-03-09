@@ -1,3 +1,4 @@
+use crate::cipher::Cipher;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -13,6 +14,14 @@ pub struct Cli {
     /// Path to the server key
     #[structopt(long = "key", env = "SERVER_KEY")]
     pub key: String,
+
+    /// Ciphersuite variant: chacha20 or aes
+    #[structopt(long = "cipher", default_value = "chacha20", env = "CIPHER")]
+    pub cipher: Cipher,
+
+    /// Suppress log messages
+    #[structopt(long = "silent")]
+    pub silent: bool,
 
     /// gRPC address
     #[structopt(

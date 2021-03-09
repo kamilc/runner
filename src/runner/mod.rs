@@ -1,17 +1,14 @@
-mod cgroups;
-
 #[macro_use]
 pub mod service;
-
 pub mod server;
 
-mod log_stream;
+mod cgroups;
 mod process_map;
 
 use anyhow::{anyhow, Context, Result};
-use cgroups::create_cgroups;
-use log::warn;
-use log_stream::LogStream;
+use cgroups::{apply_cgroup_pre_exec, create_cgroups};
+use futures::stream::{unfold, Stream};
+use log::{info, warn};
 use nix::errno::Errno;
 use nix::sys::signal;
 use nix::unistd::Pid;
@@ -22,20 +19,28 @@ use process_map::{
 use service::{
     log_request,
     log_response::{log_error, LogError},
-    run_request::Disk,
     run_response::{run_error, RunError},
     status_response::{status_error, status_result, StatusError, StatusResult},
     stop_response::{stop_error, StopError},
-    InternalError, LogRequest, RunRequest, StatusRequest, StopRequest, TaskError,
+    InternalError, LogRequest, RunRequest, StatusRequest, StopRequest,
 };
 use std::fs::File;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 use uuid::Uuid;
+
+/// State of the log stream
+struct StreamState {
+    processes: ProcessMap,
+    file: tokio::fs::File,
+    buffer: Vec<u8>,
+    id: Uuid,
+    close: bool,
+}
 
 /// Processes runner struct. Includes processes states and allows to
 /// run them, stop, get their status and the stream of logs
@@ -71,7 +76,9 @@ impl Runner {
     ///
     /// Panics if called from outside of the Tokio runtime.
     pub async fn run(&self, request: &RunRequest) -> Result<Uuid, RunError> {
-        self.validate_run(&request)?;
+        if request.command.trim().is_empty() {
+            return Err(run_error::Error::NameEmptyError.into());
+        }
 
         let id = Uuid::new_v4();
         let mut cgroups = create_cgroups(request, &id).context("Couldn't create a cgroup")?;
@@ -80,44 +87,67 @@ impl Runner {
         let stderr =
             File::create(self.stderr_path(&id)).context("Couldn't open log file for STDERR")?;
 
-        Command::new(&request.command)
-            .args(&request.arguments)
-            .stdout(stdout)
-            .stderr(stderr)
-            .spawn()
-            .map(|mut child| {
-                let pid = controlgroup::Pid::from(&child);
+        let mut cmd = Command::new(&request.command);
 
-                cgroups
-                    .add_task(pid)
-                    .context("Couldn't add new process to the new Linux control group")
-                    .map_err(|err| match &child.kill() {
-                        Ok(_) => err,
-                        Err(kerr) => anyhow!(
-                            "Couldn't kill the process after failing to apply a control group: {}",
-                            kerr
-                        ),
-                    })?;
+        cmd.args(&request.arguments);
+        cmd.stdout(stdout);
+        cmd.stderr(stderr);
 
-                let process_id = id;
-                let sys_pid = child.id();
+        if let Some(cgroup) = &cgroups.cpu() {
+            apply_cgroup_pre_exec(&mut cmd, *cgroup);
+        }
 
-                let mut map = self.processes.write().unwrap();
-                (*map).insert(id, (child.id(), Running));
+        if let Some(cgroup) = &cgroups.memory() {
+            apply_cgroup_pre_exec(&mut cmd, *cgroup);
+        }
 
+        if let Some(cgroup) = &cgroups.blkio() {
+            apply_cgroup_pre_exec(&mut cmd, *cgroup);
+        }
+
+        let spawn = cmd.spawn();
+
+        match spawn {
+            Ok(mut child) => {
+                let sys_pid: u32 = child.id().unwrap();
                 let processes = Arc::clone(&self.processes);
+
+                let mut map = self.processes.write().await;
+                (*map).insert(id, (child.id().unwrap(), Running));
+
+                info!("Spawned child {} for {}", &sys_pid, &id);
+
                 tokio::spawn(async move {
-                    if let Ok(exit_status) = child.wait() {
-                        let mut map = processes.write().unwrap();
-                        (*map).insert(process_id, (sys_pid, Stopped(exit_status)));
-                    } else {
-                        warn!("Couldn't get the exit code for {}", process_id);
+                    // A fuller solution would be to kill child processes upon us
+                    // receiving SIGINT, SIGTERM or SIGQUIT. In order to do so
+                    // properly, a PID namespace would need to be unshared - to
+                    // defend against the "double-fork" daemoning where the second
+                    // one in reparented to the init process. This stays out of
+                    // scope of this work though.
+
+                    match child.wait().await {
+                        Ok(exit_status) => {
+                            let mut map = processes.write().await;
+                            (*map).insert(id, (sys_pid, Stopped(exit_status)));
+                        }
+                        Err(_) => {
+                            warn!("Couldn't get the exit status for {}", &id);
+                        }
+                    }
+
+                    if let Err(err) = cgroups.delete() {
+                        warn!(
+                            "Couldn't delete control group for {}: {}",
+                            &id,
+                            err.to_string()
+                        )
                     }
                 });
 
                 Ok(id)
-            })
-            .context("Couldn't spawn the process as specified")?
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Stops a running process if it was started by this instance of the Runner
@@ -127,43 +157,34 @@ impl Runner {
     /// Panics if called from outside of the Tokio runtime.
     pub async fn stop(&self, request: &StopRequest) -> Result<(), StopError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
-            if let Some(pid) = self.pid_for_process(&id) {
-                if let Some((_, Stopped(_))) = self.processes.read().unwrap().get(&id) {
-                    return Err(TaskError {
-                        description: "Process already stopped".to_string(),
-                        variant: stop_error::Error::ProcessAlreadyStoppedError as i32,
-                    }
-                    .into());
+            if let Some(pid) = self.pid_for_process(&id).await {
+                if let Some((_, Stopped(_))) = self.processes.read().await.get(&id) {
+                    return Err(stop_error::Error::ProcessAlreadyStoppedError.into());
                 }
 
-                let start = Instant::now();
+                let mut start: Option<Instant> = None;
 
                 let sigkill = || -> Result<(), StopError> {
                     if signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGKILL).is_err() {
-                        return Err(TaskError {
-                            description: "Couldn't kill a process".to_string(),
-                            variant: stop_error::Error::CouldntStopError as i32,
-                        }
-                        .into());
+                        return Err(stop_error::Error::CouldntStopError.into());
                     }
 
                     Ok(())
                 };
 
-                while let Some((_, Running)) = self.processes.read().unwrap().get(&id) {
-                    if start.elapsed().as_secs() > 5 {
+                while let Some((_, Running)) = self.processes.read().await.get(&id) {
+                    if start.is_some() && start.unwrap().elapsed().as_secs() > 5 {
                         sigkill()?;
                         break;
                     } else {
+                        start = Some(Instant::now());
+
                         match signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM) {
                             Ok(_) => {
                                 // let's give it a bit and re-check if the process
                                 // is still there in the next run of this loop
-                                //
-                                // todo: uncomment this one once the process map is Send after
-                                // switching over to its tokio version
-                                //
-                                //tokio::time::sleep(Duration::from_millis(100)).await;
+
+                                tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                             Err(err) => {
                                 if let nix::Error::Sys(errno) = err {
@@ -186,18 +207,10 @@ impl Runner {
 
                 Ok(())
             } else {
-                Err(TaskError {
-                    description: "Process not found".to_string(),
-                    variant: stop_error::Error::ProcessNotFoundError as i32,
-                }
-                .into())
+                Err(stop_error::Error::ProcessNotFoundError.into())
             }
         } else {
-            Err(TaskError {
-                description: "Invalid process id".to_string(),
-                variant: stop_error::Error::InvalidId as i32,
-            }
-            .into())
+            Err(stop_error::Error::InvalidId.into())
         }
     }
 
@@ -205,7 +218,7 @@ impl Runner {
     /// If the process has finished, returns an exit code or the signal that killed it
     pub async fn status(&self, request: &StatusRequest) -> Result<StatusResult, StatusError> {
         if let Ok(id) = Uuid::parse_str(&request.id) {
-            let map = self.processes.read().unwrap();
+            let map = self.processes.read().await;
 
             if let Some((_, process_status)) = map.get(&id) {
                 match process_status {
@@ -242,60 +255,86 @@ impl Runner {
                     Running => Ok(StatusResult { finish: None }),
                 }
             } else {
-                Err(TaskError {
-                    description: "Process not found".to_string(),
-                    variant: status_error::Error::ProcessNotFoundError as i32,
-                }
-                .into())
+                Err(status_error::Error::ProcessNotFoundError.into())
             }
         } else {
-            Err(TaskError {
-                description: "Invalid process id".to_string(),
-                variant: status_error::Error::InvalidId as i32,
-            }
-            .into())
+            Err(status_error::Error::InvalidId.into())
         }
     }
 
     /// Returns a stream of stdout or stderr logs for a process. The stream implements
     /// futures::streams::Stream.
-    pub async fn log(&self, request: &LogRequest) -> Result<LogStream, LogError> {
-        let map = self.processes.read().unwrap();
+    ///
+    /// # Panics
+    ///
+    /// Panics if called from outside of the Tokio runtime.
+    pub async fn log(
+        &self,
+        request: &LogRequest,
+    ) -> Result<
+        std::pin::Pin<Box<dyn Stream<Item = Result<Vec<u8>, LogError>> + Send + Sync>>,
+        LogError,
+    > {
+        let map = self.processes.read().await;
+
         if let Ok(id) = Uuid::parse_str(&request.id) {
             if map.get(&id).is_some() {
                 let maybe_descriptor = log_request::Descriptor::from_i32(request.descriptor);
 
                 match maybe_descriptor {
-                Some(descriptor) => {
-                    let log_path = match descriptor {
-                        log_request::Descriptor::Stdout => self.stdout_path(&id),
-                        log_request::Descriptor::Stderr => self.stderr_path(&id),
-                    };
+                    Some(descriptor) => {
+                        let log_path = match descriptor {
+                            log_request::Descriptor::Stdout => self.stdout_path(&id),
+                            log_request::Descriptor::Stderr => self.stderr_path(&id),
+                        };
 
-                    Ok(LogStream::open(
-                        id,
-                        Arc::clone(&self.processes),
-                        log_path.as_path(),
-                        self.buffer_size.unwrap_or(256),
-                    )?)
+                        let file = tokio::fs::File::open(&log_path).await.context("Couldn't open log file")?;
+
+                        let buffer_size = self.buffer_size.unwrap_or(256);
+                        let buffer = vec![0_u8; buffer_size];
+
+                        let state = StreamState {
+                            processes: Arc::clone(&self.processes),
+                            file,
+                            buffer,
+                            id,
+                            close: false
+                        };
+
+                        Ok(Box::pin(unfold(state, |mut state| async move {
+                            if state.close {
+                                return None;
+                            }
+
+                            loop {
+                                if let Ok(bytes) = state.file.read(&mut state.buffer).await {
+                                    if bytes > 0 {
+                                        let data = state.buffer[0..bytes].to_vec();
+
+                                        return Some((Ok(data), state));
+                                    } else if let Some((_, Stopped(_))) = state.processes.read().await.get(&state.id) {
+                                        return None;
+                                    } else {
+                                        tokio::time::sleep(Duration::from_millis(100)).await;
+                                    }
+                                } else {
+                                    let state = StreamState { close: true, ..state };
+
+                                    return Some((Err(anyhow!("Error reading from log file").into()), state ));
+                                }
+                            }
+
+                        })))
+                    }
+                    None => Err(InternalError {
+                        description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
+                    }.into())
                 }
-                None => Err(InternalError {
-                    description: "Given descriptor is invalid. Are you using compatible version of the client?".to_string(),
-                }.into())
-            }
             } else {
-                Err(TaskError {
-                    description: "Process not found".to_string(),
-                    variant: log_error::Error::ProcessNotFoundError as i32,
-                }
-                .into())
+                Err(log_error::Error::ProcessNotFoundError.into())
             }
         } else {
-            Err(TaskError {
-                description: "Invalid process id".to_string(),
-                variant: log_error::Error::InvalidId as i32,
-            }
-            .into())
+            Err(log_error::Error::InvalidId.into())
         }
     }
 
@@ -319,36 +358,9 @@ impl Runner {
         path
     }
 
-    /// Validates the "run process" request
-    fn validate_run(&self, request: &RunRequest) -> Result<(), RunError> {
-        if request.command.trim().is_empty() {
-            return Err(TaskError {
-                description: "Command name empty".to_string(),
-                variant: run_error::Error::NameEmptyError as i32,
-            }
-            .into());
-        }
-
-        if let Some(Disk::MaxDisk(max)) = request.disk {
-            if max > 1000 {
-                return Err(TaskError {
-                    description: "Max disk weight given greater than 1000 which is invalid"
-                        .to_string(),
-                    variant: run_error::Error::InvalidMaxDisk as i32,
-                }
-                .into());
-            }
-        }
-
-        // Not validating arguments here since they really *can* be
-        // anything. It's possible e.g. for some of them to be empty.
-
-        Ok(())
-    }
-
     /// Returns the PID for a given UUID id of the process
-    fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
-        let processes = self.processes.read().unwrap();
+    async fn pid_for_process(&self, id: &Uuid) -> Option<u32> {
+        let processes = self.processes.read().await;
 
         if let Some((pid, _)) = (*processes).get(id) {
             Some(*pid)
@@ -365,7 +377,6 @@ mod tests {
 
     use super::*;
     use futures::StreamExt;
-    use service;
     use sysinfo::SystemExt;
 
     #[tokio::test]
@@ -391,8 +402,7 @@ mod tests {
         };
 
         let request = RunRequest {
-            command: "date".to_string(),
-            disk: Some(service::run_request::Disk::MaxDisk(2000)),
+            command: "".to_string(),
             ..Default::default()
         };
 
@@ -402,7 +412,7 @@ mod tests {
         assert!(
             res.err().unwrap().errors.unwrap()
                 == service::run_response::run_error::Errors::RunError(
-                    service::run_response::run_error::Error::InvalidMaxDisk as i32
+                    service::run_response::run_error::Error::NameEmptyError as i32
                 )
         );
     }
@@ -447,7 +457,7 @@ mod tests {
         };
 
         let id = runner.run(&run_request).await.unwrap();
-        let pid = runner.pid_for_process(&id).unwrap();
+        let pid = runner.pid_for_process(&id).await.unwrap();
 
         let mut system = sysinfo::System::new();
         assert!(system.get_process(pid as i32).is_some());

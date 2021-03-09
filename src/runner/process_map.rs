@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::process::ExitStatus;
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
