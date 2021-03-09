@@ -5,10 +5,52 @@ A job worker service and its client. It allows its users to run arbitrary Linux 
 ## Requirements
 
 * A x86-64 Linux machine with v1 control groups enabled (other architectures were not tested)
-* libudev
+* libudev-devel
 * pkg-config
+* gcc
+* make
+* openssl (only if you want to use the Makefile to generate example certificates)
 * rustc 1.52.0-nightly
 * rustfmt (needed to compile protobufs)
+
+### Notes on v1 cgroups
+
+As RHEL8, Centos8 and latest Fedora focus on promoting podman, cgroups v1 are disabled by default (podman uses v2 while its direct competitor, Docker is still on v1). If you're using a system with v1 disabled, you'll need to run the following command to re-enable them:
+
+```bash
+grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
+```
+
+You'll then need to restart your system for the changes to get applied.
+
+### Where to find the dependiencies
+
+For Ubuntu related systems:
+
+```bash
+sudo apt-get install build-essential libudev-dev
+```
+
+For latest Fedora (likely Centos8 and RHEL8 too but I haven't tested):
+
+```bash
+sudo dnf install systemd-devel gcc make openssl
+```
+
+#### Rustup
+
+If you don't have it installed yet:
+
+```bash
+$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o ~/rustup.sh
+$ sh ~/rustup.sh -y --default-toolchain="nightly"
+```
+
+The testing suite that checks features requiring root privileges uses sudo. If you're using `rustup` make sure the toolchain is configured coreectly with:
+
+```bash
+sudo -E env "PATH=$PATH" rustup default nightly
+```
 
 ## Compiling
 
