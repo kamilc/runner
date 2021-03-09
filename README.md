@@ -23,7 +23,7 @@ grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 
 You'll then need to restart your system for the changes to get applied.
 
-### Where to find the dependiencies
+### Where to find the dependencies
 
 For Ubuntu related systems:
 
