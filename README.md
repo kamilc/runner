@@ -15,7 +15,7 @@ A job worker service and its client. It allows its users to run arbitrary Linux 
 
 ### Notes on v1 cgroups
 
-As RHEL8, Centos8 and latest Fedora focus on promoting podman, cgroups v1 are disabled by default (podman uses v2 while its direct competitor, Docker is still on v1). If you're using a system with v1 disabled, you'll need to run the following command to re-enable them:
+As RHEL8, Centos8 and latest Fedora focus on supporting podman, cgroups v1 are disabled by default (podman uses v2 while Docker is still on v1). If you're using a system with v1 disabled, you'll need to run the following command to re-enable them:
 
 ```bash
 grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
